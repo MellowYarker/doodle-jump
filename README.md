@@ -28,6 +28,13 @@ After seeing the demo, it's pretty clear collision detection only occurs while t
 In the demo, if any part of the bottom of the doodle hits the platform, the doodle will jump. So if `2/3` of the doodle is hanging over the edge of the platform, but at least *1* bottom block touches the top of the platform, the doodle jumps.
 
 ## Painting the Canvas
+
+### Drawing Platforms
+In the demo, the platforms were always at the same height. The lowest platform on the map is at the bottom of the display, the highest platform is (seemingly) 1 block beneath the doodle's `max_height`. This simplifies things considerably.
+
+- The only time we ever need to think about platform height is when redrawing the map, and in this case, if platform `p_i` is at position `i = {1, 2, 3}`, then in general, `p_i -> p_{i-1}`, thus `p_1` (bottom platform) disappears, and a new platform enters from the top.
+- If we have defined heights, it's just a matter of writing a loop that increments the current row to the destination row. Keep in mind the fact that the lower you are on the screen, the higher your row # is.
+
 ### Redrawing after a high jump
 Sometimes the doodle will jump high enough to warrent moving the map. In this case, as is done in the demo, we will stall the doodle at a defined `max_height` and move the map until the jump loop has completed and the doodle starts to fall.
 
