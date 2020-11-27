@@ -20,8 +20,12 @@ I don't think this is too difficult to implement. This is really just a while lo
 
 To be a bit more specific, moving *up* should be super easy, since the doodle will have a defined jump height. Falling down is a bit more complicated, since we might land on a platform with variable height, or hit the bottom of the screen. More on this in the collision detection section.
 
+When the doodle is rising, if we go through a platform, we want the doodle to pass behind it, i.e, focus on repainting the doodle, not the platform.
+
 ### Collision Detection
 After seeing the demo, it's pretty clear collision detection only occurs while the doodle is in free-fall. This means we can pass through platforms when we're rising, it also means we don't have to waste CPU cycles doing unnecessary collision detection, since we only check in the "falling" loop.
+
+In the demo, if any part of the bottom of the doodle hits the platform, the doodle will jump. So if `2/3` of the doodle is hanging over the edge of the platform, but at least *1* bottom block touches the top of the platform, the doodle jumps.
 
 ## Painting the Canvas
 ### Redrawing after a high jump
