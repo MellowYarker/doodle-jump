@@ -74,9 +74,7 @@
         # if $s5 is 0, draw the platforms, otherwise skip
         beq $s5, $t2, SET_PLATFORMS
         # do stuff like draw the character.
-
-        # after everything has finished
-        add $s5, $zero, $zero     # set $s5 to 0, so the next time we enter DRAW_MAP we will draw the platforms
+        j UPDATE_PLATFORMS
         j DRAW_MAP
 
     # In SET_PLATFORMS we determine the horizontal position of each platform.
@@ -105,9 +103,6 @@
         add $t1, $t9, $t0       # $t1 = platform_arr[i]
         sw $t2, 0($t1)          # platform_arr[i] = column_index
 
-        # 2. actually draw each platform
-        # Throughout DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
-        add $s2, $zero, $zero
         # put the platform colour on the stack before drawing.
         lw $t8, platform_colour
         addi $sp, $sp, -4
@@ -125,6 +120,9 @@
 
         lw $t7, 0($sp)      # get the colour off the stack
         addi $sp, $sp, 4    # reset the stack pointer
+
+        # Throughout FUNCTION_DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
+        add $s2, $zero, $zero
 
         GET_PLATFORM:
             la $t8, row_arr         # our array of row indexes
@@ -162,8 +160,8 @@
             DRAW_CURRENT_PLATFORM:
                 # while i < platform_width, draw this platform
                 beq $t2, $t3, NEXT_PLATFORM
-                addi $s6, $s6, 4   # current block to colour
-                sw $t7, 0($s6)      # make current block green
+                addi $s6, $s6, 4    # current block to colour
+                sw $t7, 0($s6)      # draw the block the chosen colour
 
                 # increment the block and go to the loop condition
                 addi $t2, $t2, 4
@@ -176,6 +174,20 @@
 
             COMPLETE_PLATFORM:
                 jr $ra
+
+    # the character has hit max height and so we have to move the platforms down.
+    UPDATE_PLATFORMS:
+        # 1. Erase the current platforms.
+        # put the platform colour on the stack before drawing.
+        lw $t0, background
+        addi $sp, $sp, -4
+        sw $t0, 0($sp)
+
+        jal FUNCTION_DRAW_PLATFORM_LOOP
+
+        # after everything has finished
+        add $s5, $zero, $zero     # set $s5 to 0, so the next time we enter DRAW_MAP we will draw the platforms
+        j DRAW_MAP
 
 Exit:
     li $v0, 10 		# terminate the program gracefully
