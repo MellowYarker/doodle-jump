@@ -22,6 +22,9 @@ To be a bit more specific, moving *up* should be super easy, since the doodle wi
 
 When the doodle is rising, if we go through a platform, we want the doodle to pass behind it, i.e, focus on repainting the doodle, not the platform.
 
+### Max Height
+In the demo, it looks like the doodle is unable to go higher than the 8th row. This means the top of the doodle is slightly above the "*Display Width in Pixels*" setting beside the display.
+
 ### Collision Detection
 After seeing the demo, it's pretty clear collision detection only occurs while the doodle is in free-fall. This means we can pass through platforms when we're rising, it also means we don't have to waste CPU cycles doing unnecessary collision detection, since we only check in the "falling" loop.
 
@@ -34,6 +37,12 @@ In the demo, the platforms were always at the same height. The lowest platform o
 
 - The only time we ever need to think about platform height is when redrawing the map, and in this case, if platform `p_i` is at position `i = {1, 2, 3}`, then in general, `p_i -> p_{i-1}`, thus `p_1` (bottom platform) disappears, and a new platform enters from the top.
 - If we have defined heights, it's just a matter of writing a loop that increments the current row to the destination row. Keep in mind the fact that the lower you are on the screen, the higher your row # is.
+
+The platforms seem to be in the following rows:
+- Bottom platform -> Row 31 (bottom row)
+- Middle platform -> Row 20 or 21
+- Top platform ----> Row  9 or 10
+
 
 ### Redrawing after a high jump
 Sometimes the doodle will jump high enough to warrent moving the map. In this case, as is done in the demo, we will stall the doodle at a defined `max_height` and move the map until the jump loop has completed and the doodle starts to fall.
