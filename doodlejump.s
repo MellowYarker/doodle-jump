@@ -108,68 +108,74 @@
         # 2. actually draw each platform
         # Throughout DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
         add $s2, $zero, $zero
-        j DRAW_PLATFORM_LOOP
+        # put the platform colour on the stack before drawing.
+        lw $t8, platform_colour
+        addi $sp, $sp, -4
+        sw $t8, 0($sp)
 
-    DRAW_PLATFORM_LOOP:
-        # In DRAW_PLATFORM_LOOP, we get each platform from platform_arr and draw it.
+        jal FUNCTION_DRAW_PLATFORM_LOOP
 
-        la $t8, row_arr         # our array of row indexes
-        la $t9, platform_arr    # our array of platform origins
-        lw $t1, num_platforms   # loop condition
-        addi $t2, $zero, 4
-        mult $t1, $t2
-        mflo $t1                # $t1 = num_platforms * 4
-
-        # While i < num_platforms * 4, required because the next element is at arr[i + 4]
-        beq $s2, $t1, COMPLETE_PLATFORM
-
-        # Draw the current platform from our array.
-        add $t2, $zero, $zero   # current block being drawn.
-        lw $s0, displayAddress  # base address
-        lw $t3, platform_width
-        addi $t4, $zero, 4
-        mult $t3, $t4
-        mflo $t3                # required for loop condition, 4*platform width
-
-        # 1. get the row_index from row_arr[i]
-        add $t4, $t8, $s2   # addr(row_arr[i])
-        lw $t5, 0($t4)
-
-        # 2. add the row index to the base of the display, positions us in the display.
-        add $t5, $t5, $s0   # $t5 holds row_arr[i]'s actual position in the display
-
-        # 3. get the column index from platform_arr[i]
-        add $t4, $t9, $s2   # addr(platform_arr[i])
-        lw $s6, 0($t4)      # $s6 = platform_arr[i]
-
-        # 4. add the column index to the position in the display to get to the current block
-        add $s6, $s6, $t5   # $s6 = platform_arr[i] + row in display, i.e the leftmost block of this platform. This is the curent block.
-
-        # 5. colour the block
-        lw $t7, platform_colour
-
-        DRAW_CURRENT_PLATFORM:
-            # while i < platform_width, draw this platform
-            beq $t2, $t3, NEXT_PLATFORM
-            addi $s6, $s6, 4   # current block to colour
-            sw $t7, 0($s6)      # make current block green
-
-            # increment the block and go to the loop condition
-            addi $t2, $t2, 4
-            j DRAW_CURRENT_PLATFORM
-
-        NEXT_PLATFORM:
-            # increment our index by 4
-            addi $s2, $s2, 4
-            j DRAW_PLATFORM_LOOP
-
-
-    COMPLETE_PLATFORM:
         # set $s5 to 1 to indicate we should not draw the platforms until later.
         addi $s5, $zero, 1
-        
-        # go back to DRAW_MAP, since we have finished drawing the platforms.
         j DRAW_MAP
+
+    FUNCTION_DRAW_PLATFORM_LOOP:
+        # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
+        # from platform_arr and draw it using the colour on the stack.
+
+        lw $t7, 0($sp)      # get the colour off the stack
+        addi $sp, $sp, 4    # reset the stack pointer
+
+        GET_PLATFORM:
+            la $t8, row_arr         # our array of row indexes
+            la $t9, platform_arr    # our array of platform origins
+            lw $t1, num_platforms   # loop condition
+            addi $t2, $zero, 4
+            mult $t1, $t2
+            mflo $t1                # $t1 = num_platforms * 4
+
+            # While i < num_platforms * 4, required because the next element is at arr[i + 4]
+            beq $s2, $t1, COMPLETE_PLATFORM
+
+            # Draw the current platform from our array.
+            add $t2, $zero, $zero   # current block being drawn.
+            lw $s0, displayAddress  # base address
+            lw $t3, platform_width
+            addi $t4, $zero, 4
+            mult $t3, $t4
+            mflo $t3                # required for loop condition, 4*platform width
+
+            # 1. get the row_index from row_arr[i]
+            add $t4, $t8, $s2   # addr(row_arr[i])
+            lw $t5, 0($t4)
+
+            # 2. add the row index to the base of the display, positions us in the display.
+            add $t5, $t5, $s0   # $t5 holds row_arr[i]'s actual position in the display
+
+            # 3. get the column index from platform_arr[i]
+            add $t4, $t9, $s2   # addr(platform_arr[i])
+            lw $s6, 0($t4)      # $s6 = platform_arr[i]
+
+            # 4. add the column index to the position in the display to get to the current block
+            add $s6, $s6, $t5   # $s6 = platform_arr[i] + row in display, i.e the leftmost block of this platform. This is the curent block.
+
+            DRAW_CURRENT_PLATFORM:
+                # while i < platform_width, draw this platform
+                beq $t2, $t3, NEXT_PLATFORM
+                addi $s6, $s6, 4   # current block to colour
+                sw $t7, 0($s6)      # make current block green
+
+                # increment the block and go to the loop condition
+                addi $t2, $t2, 4
+                j DRAW_CURRENT_PLATFORM
+
+            NEXT_PLATFORM:
+                # increment our index by 4
+                addi $s2, $s2, 4
+                j GET_PLATFORM
+
+            COMPLETE_PLATFORM:
+                jr $ra
 
 Exit:
     li $v0, 10 		# terminate the program gracefully
