@@ -26,26 +26,30 @@
 #
 #####################################################################
 .data
-    displayAddress:	.word 0x10008000
+    displayAddress:     .word 0x10008000
+    background:         .word 0xffffff      # Background colour of the display
+    platform_colour:    .word 0x00ff00
+    platform_width:     .word 8             # platform width
+    num_platforms:      .word 3
+    # Array of 3 platforms.
+    #   - in both platform_arr and row_arr, the first entry is the bottom platform.
+    # Note that we will have to add the "column index", i.e x*4 to whatever the row is
+    # so it will be trivial to get it on the display. Just set the row to the 0th col of some
+    # row in the display.
+    platform_arr:   .word 0:3               # We store the leftmost block's "column" x where x in [0, 31 - platform_width].
+    row_arr:      .word 3968,2688,1408    # Store the row_indexes of each platform. Add these to displayAddress.
+
 .text
-    # setup
-    lw $s0, displayAddress 	# $s0 stores the base address for display
-    add $s1, $zero, $s0     # $s1 stores the location of the current block
-    li $t0, 0xffffff        # $t0 stores the white colour code, this is the background colour
-    li $t1, 0x00ff00        # $t1 stores the green colour code, this is the platform colour
-    addi $s7, $zero, 8      # $s7 stores the default size (number of blocks) of the platforms.
+    MAIN:
+        # setup
+        lw $s0, displayAddress 	# $s0 stores the base address for display
+        add $s1, $zero, $s0     # $s1 stores the location of the current block
 
-    # ~~platforms~~
-    # $s2 stores the leftmost block index of the lowest platform
-    # $s3 stores the leftmost block index of the centre platform
-    # $s4 stores the leftmost block index of the top    platform
-    
-    add $s2, $zero, $s0     # set it to be the base address for now
-    add $s3, $zero, $s0     # set it to be the base address for now
-    add $s4, $zero, $s0     # set it to be the base address for now
-    add $s5, $zero, $zero   # 0 => draw platforms, 1 => do not draw platforms
+        # ~~platforms~~
+        add $s5, $zero, $zero   # 0 => draw platforms, 1 => do not draw platforms
+        j DRAW_BACKGROUND
 
-    START:
+    DRAW_BACKGROUND:
         # first, we want to make sure we're not at the last block
         addi $t2, $s0, 4096 # based address + 4096
         # If testing, uncomment this to avoid painting the white screen.
@@ -54,13 +58,16 @@
         beq $s1, $t2, DRAW_MAP
 
         # otherwise, make the block white and increment!
+        lw $t0, background  # Store the background colour in $t0
         sw $t0, 0($s1)      # $s1 points to a location in memory, we are accessing the memory
         addi $s1, $s1, 4    # here, we are modifying the value of the address stored at $s1
 
         # go to the top of the loop.
-        j START
+        j DRAW_BACKGROUND
 
     DRAW_MAP:
+        lw $s0, displayAddress
+        add $s1, $zero, $s0 # current block
         # We always have 3 platforms visible.
         add $t2 $zero, $zero
 
@@ -68,78 +75,97 @@
         beq $s5, $t2, SET_PLATFORMS
         # do stuff like draw the character.
 
-
         # after everything has finished
         add $s5, $zero, $zero     # set $s5 to 0, so the next time we enter DRAW_MAP we will draw the platforms
-        j Exit
+        j DRAW_MAP
 
+    # In SET_PLATFORMS we determine the horizontal position of each platform.
     SET_PLATFORMS:
-        # add $t2, $zero, $zero # seems unnecessary
         # 1. set the left bound of each platform
         #       TODO: will need bounds checking later.
         # platform width = 8 blocks
         # left most is column 12 (default for testing)
 
-        # want column index 12*4 = 48, rows 18, 12, and 6
-        #   $s2 => (48 + 128*18), 128*18 = 18th row
-        addi $t2, $zero, 48
-        addi $t4, $zero, 128
-        addi $t3, $zero, 18
-        mult $t3, $t4       # 128 * 18
-        mflo $t3            # store mult in $t3
-        add $t2, $t2, $t3   # 48 + 128*18
-        add $s2, $s2, $t2
-        add $t2, $zero, $zero
+        # want column index 12*4 = 48, rows 31, 21, and 11
+        la $t9, platform_arr    # our array of platform origins
 
-        #   $s3 => (48+ 128*12), 128*12 = 12th row
-        addi $t2, $zero, 48
-        addi $t3, $zero, 12
-        mult $t3, $t4       # 128 * 12
-        mflo $t3            # store mult in $t3
-        add $t2, $t2, $t3   # 48 + 128*12
-        add $s3, $s3, $t2
-        add $t2, $zero, $zero
+        # bottom platform
+        add $t0, $zero, $zero   # current index i in platform_arr
+        add $t1, $t9, $t0       # $t1 = platform_arr[i]
+        addi $t2, $zero, 48     # column_index = column * 4
+        sw $t2, 0($t1)          # platform_arr[i] = column_index
+        addi $t0, $t0, 4        # increment our index to the next word
 
-        #   $s4 => (48 + 128*6), 128 * 6 = 6th row
-        addi $t2, $zero, 48
-        addi $t3, $zero, 6
-        mult $t3, $t4       # 128*6
-        mflo $t3            # store mult in $t3
-        add $t2, $t2, $t3   # 48 + 128*6
-        add $s4, $s4, $t2
-        add $t2, $zero, $zero
+        # middle platform
+        add $t1, $t9, $t0       # $t1 = platform_arr[i]
+        sw $t2, 0($t1)          # platform_arr[i] = column_index
+        addi $t0, $t0, 4        # increment our index to the next word
+
+        # top platform
+        add $t1, $t9, $t0       # $t1 = platform_arr[i]
+        sw $t2, 0($t1)          # platform_arr[i] = column_index
 
         # 2. actually draw each platform
+        # Throughout DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
+        add $s2, $zero, $zero
         j DRAW_PLATFORM_LOOP
 
     DRAW_PLATFORM_LOOP:
-        # in this loop, we will draw the platforms and then finish up.
-        # each left most index is assumed to be correct at this point, we simply need to draw them now
-        beq $t2, $s7, COMPLETE_PLATFORM
-        # colour each current platform block
-        sw $t1, 0($s2)
-        sw $t1, 0($s3)
-        sw $t1, 0($s4)
+        # In DRAW_PLATFORM_LOOP, we get each platform from platform_arr and draw it.
 
-        # increment each current platform block
-        addi $s2, $s2, 4
-        addi $s3, $s3, 4
-        addi $s4, $s4, 4
+        la $t8, row_arr         # our array of row indexes
+        la $t9, platform_arr    # our array of platform origins
+        lw $t1, num_platforms   # loop condition
+        addi $t2, $zero, 4
+        mult $t1, $t2
+        mflo $t1                # $t1 = num_platforms * 4
 
-        # increment $t2
-        addi $t2, $t2, 1
+        # While i < num_platforms * 4, required because the next element is at arr[i + 4]
+        beq $s2, $t1, COMPLETE_PLATFORM
 
-        # jump to the top of the loop
-        j DRAW_PLATFORM_LOOP
+        # Draw the current platform from our array.
+        add $t2, $zero, $zero   # current block being drawn.
+        lw $s0, displayAddress  # base address
+        lw $t3, platform_width
+        addi $t4, $zero, 4
+        mult $t3, $t4
+        mflo $t3                # required for loop condition, 4*platform width
+
+        # 1. get the row_index from row_arr[i]
+        add $t4, $t8, $s2   # addr(row_arr[i])
+        lw $t5, 0($t4)
+
+        # 2. add the row index to the base of the display, positions us in the display.
+        add $t5, $t5, $s0   # $t5 holds row_arr[i]'s actual position in the display
+
+        # 3. get the column index from platform_arr[i]
+        add $t4, $t9, $s2   # addr(platform_arr[i])
+        lw $s6, 0($t4)      # $s6 = platform_arr[i]
+
+        # 4. add the column index to the position in the display to get to the current block
+        add $s6, $s6, $t5   # $s6 = platform_arr[i] + row in display, i.e the leftmost block of this platform. This is the curent block.
+
+        # 5. colour the block
+        lw $t7, platform_colour
+
+        DRAW_CURRENT_PLATFORM:
+            # while i < platform_width, draw this platform
+            beq $t2, $t3, NEXT_PLATFORM
+            addi $s6, $s6, 4   # current block to colour
+            sw $t7, 0($s6)      # make current block green
+
+            # increment the block and go to the loop condition
+            addi $t2, $t2, 4
+            j DRAW_CURRENT_PLATFORM
+
+        NEXT_PLATFORM:
+            # increment our index by 4
+            addi $s2, $s2, 4
+            j DRAW_PLATFORM_LOOP
+
 
     COMPLETE_PLATFORM:
-        # First, reset $s2, #s3, and $s4 to their leftmost block positions
-        # Recall that $s7 is the DEFAULT PLATFORM SIZE
-        # TODO: if we have variable sized platforms, should probably handle that here.
-        sub $s2, $s2, $s7
-        sub $s3, $s3, $s7
-        sub $s4, $s4, $s7
-        # set $s5 to 1, i.e do not draw platforms when we enter DRAW_MAP, as we have already done it.
+        # set $s5 to 1 to indicate we should not draw the platforms until later.
         addi $s5, $zero, 1
         
         # go back to DRAW_MAP, since we have finished drawing the platforms.
