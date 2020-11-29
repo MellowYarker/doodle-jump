@@ -26,19 +26,28 @@
 #
 #####################################################################
 .data
-    displayAddress:     .word 0x10008000
     background:         .word 0xffffff          # Background colour of the display
     doodle_colour:      .word 0x000fff
     platform_colour:    .word 0x00ff00
+
+    displayAddress:     .word 0x10008000
+
     platform_width:     .word 8                 # platform width
     num_platforms:      .word 3
+
     # Array of 3 platforms.
     #   - in both platform_arr and row_arr, the first entry is the bottom platform.
-    # Note that we will have to add the "column index", i.e x*4 to whatever the row is
-    # so it will be trivial to get it on the display. Just set the row to the 0th col of some
-    # row in the display.
-    platform_arr:       .word 0:3               # We store the leftmost block's "column" x where x in [0, 31 - platform_width].
+    #   - platform_arr stores the leftmost column index (col * 4, col in [0, 31-platform_width])
+    #   - row_arr stores the row index (row*128, row in [0, 31])
+    #       - we pick 128 because that's the index of the first block after the 1st row
+    platform_arr:       .word 0:3
     row_arr:            .word 3968,2688,1408    # Store the row_indexes of each platform. Add these to displayAddress.
+
+    # Doodle Character
+    #   - We will only store the bottom left of the doodle, the rest can easily be calculated on the fly.
+    #   - We will store it's offset as a value in [0, 4092], so we have to add it to the base of the display
+    #     when drawing.
+    doodle_origin:      .word 0                 # Storing [0, 4092] makes bounds/collision detection easier.
 
 .text
     MAIN:
@@ -48,6 +57,7 @@
 
         # ~~platforms~~
         add $s5, $zero, $zero   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
+        add $s7, $0, $0         # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
         j DRAW_BACKGROUND
 
     # this section of code is where we are idle.
@@ -82,14 +92,15 @@
         j DRAW_BACKGROUND
 
     SETUP_GAME:
-        lw $s0, displayAddress
         add $s1, $zero, $s0 # current block
         # We always have 3 platforms visible.
         add $t2 $zero, $zero
 
+        # TODO: Set up and draw the character.
         # if $s5 is 0, draw the platforms, otherwise skip
         beq $s5, $t2, SET_PLATFORMS
-        # TODO: Set up and draw the character.
+        # if $s7 is 0, draw the doodle, otherwise skip
+        beq $s7, $t2, SET_DOODLE
         j GAME_LOOP
 
     # In SET_PLATFORMS we determine the horizontal position of each platform.
@@ -129,28 +140,56 @@
         addi $s5, $zero, 1
         j SETUP_GAME
 
-    # In SETUP_DOODLE, we want to initiate the doodle above the (centre?)
+    # In SET_DOODLE, we want to initiate the doodle above the (centre?)
     # of the bottom platform.
-    SETUP_DOODLE:
-        lw $t0, platform_arr    # get the column index of the bottom platform
-        lw $t1, doodle_colour
+    # Since the platforms have been validated, we don't need to check any errors.
+    SET_DOODLE:
+        lw $t0, platform_arr
+        lw $t1, row_arr
+        lw $t2, doodle_colour
+        la $t3, doodle_origin
 
-        # move the bottom left corner onto the stack
-        addi $sp, $sp, -4
-        sw $t0, 0($sp)
+        add $t0, $t0, $t1       # $t0 = offset of the 1st block of the bottom platform
+        addi $t0, $t0, -120     # -120 = -128 + 8 = 1 row above, 3 blocks to the right
+        sw $t0, 0($t3)          # doodle_origin = 3rd block of bottom platform
 
+        # move the doodle's colour onto the stack
         addi $sp, $sp, -4
-        sw $t1, 0($sp)
+        sw $t2, 0($sp)
         jal FUNCTION_DRAW_DOODLE
+        addi $s7, $zero, 1      # $s7 = 1, so we have finished drawing the initial doodle.
+        j SETUP_GAME
 
     # Draw the doodle given the bottom left block
     # If we enter this function, we assume that the bounds checks etc have all been done.
-    FUNCTION_DRAW_DOODLE
-        lw $s4, 0($sp)
+    FUNCTION_DRAW_DOODLE:
+        # $t0 = colour of the doodle.
+        lw $t0, 0($sp)
         addi $sp, $sp, 4
 
-        lw $s1, 0($sp)
-        addi $sp, $sp, 4
+        lw $t1, doodle_origin
+        # Draw as follows:
+        #	 1. Origin
+        #	 2. Origin + 8
+        #	 3. Origin - 128
+        #	 4. Origin - 124
+        #	 5. Origin - 120
+        #	 6. Origin - 252
+
+        add $t1, $t1, $s0   # recall $s0 = displayAddress
+        addi $t2, $t1, 8
+        addi $t3, $t1, -128
+        addi $t4, $t1, -124
+        addi $t5, $t1, -120
+        addi $t6, $t1, -252
+
+        # draw each location
+        sw $t0, 0($t1)
+        sw $t0, 0($t2)
+        sw $t0, 0($t3)
+        sw $t0, 0($t4)
+        sw $t0, 0($t5)
+        sw $t0, 0($t6)
 
         jr $ra
 
@@ -161,7 +200,6 @@
         lw $t7, 0($sp)      # get the colour off the stack
         addi $sp, $sp, 4    # reset the stack pointer
 
-        lw $s0, displayAddress  # base address
         # Throughout FUNCTION_DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
         add $s2, $zero, $zero
         la $t8, row_arr         # our array of row indexes
