@@ -48,6 +48,9 @@
     #   - We will store it's offset as a value in [0, 4092], so we have to add it to the base of the display
     #     when drawing.
     doodle_origin:      .word 0                 # Storing [0, 4092] makes bounds/collision detection easier.
+    bounce_height:      .word 14                # Doodle can jump up 14 rows.
+    MAX_HEIGHT:         .word 1152              # 2 rows above the highest platform (when map is rendered)
+    candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
 .text
     MAIN:
@@ -96,11 +99,16 @@
         # We always have 3 platforms visible.
         add $t2 $zero, $zero
 
-        # TODO: Set up and draw the character.
         # if $s5 is 0, draw the platforms, otherwise skip
         beq $s5, $t2, SET_PLATFORMS
         # if $s7 is 0, draw the doodle, otherwise skip
         beq $s7, $t2, SET_DOODLE
+        # make the doodle start to bounce and then go
+        jal FUNCTION_COLLISION_DETECTION
+        add $s1, $zero, $v0        # 1 if collision occured, 0 otherwise.
+        addi $t0, $zero, 1
+        # TODO: delete this.
+        beq $s1, $t0, Exit
         j GAME_LOOP
 
     # In SET_PLATFORMS we determine the horizontal position of each platform.
@@ -257,6 +265,7 @@
     UPDATE_PLATFORMS:
         add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
 
+        # TODO: in between each platform decrement, we have to check for doodle movement.
         MOVE_PLATFORMS:
             li $v0 32           # sleep for 100 ms
             addi $a0, $zero, 150
@@ -351,6 +360,98 @@
         COMPLETE_PLATFORM_UPDATE:
             # after everything has finished
             j GAME_LOOP
+
+    # Collision detection algorithm.
+    # Called only when falling.
+    # We rely on the `candidate_platform` variable here.
+    #
+    # Returns:
+    #   0 if no collision
+    #   1 if collision detected
+    FUNCTION_COLLISION_DETECTION:
+        # First, we want to determine if we're 1 row above the platform
+        la $t8, row_arr
+        lw $t0, candidate_platform
+        addi $t1, $zero, 4
+        mult $t0, $t1
+        mflo $t0
+        add $t4, $t0, $t8   # $t4 = addr(row_arr[candidate_platform])
+        lw $t0, 0($t4)      # $t0 = row_arr[candidate_platform]
+
+        addi $t2, $t0, -128 # $t2 = leftmost block of 1 row above the platform
+        addi $t3, $t0, -4   # $t3 = rightmost block of 1 row above the platform
+
+        # if $t2 <= doodle <= $t3, the doodle is 1 row above the platform.
+        lw $t4, doodle_origin   # position of the leftmost block of the doodle.
+        sub $t2, $t4, $t2       # if $t2 > 0, then $t2 <= doodle
+        sub $t3, $t3, $t4       # if $t3 > 0, then doodle <= $t3
+
+        # Add 1 to both because they could be 0
+        addi $t2, $t2, 1
+        addi $t3, $t3, 1
+
+        # Check that $t2 <= doodle
+        CHECK_LEFT:
+            bgtz $t2, CHECK_RIGHT
+            j NO_COLLISION
+
+        # Check that doodle <= $t3
+        CHECK_RIGHT:
+            bgtz $t3, VERIFY_COLLISION
+            j NO_COLLISION
+
+        # At this point, we know the doodle is 1 row above the platform.
+        # We want to check if it's actually touching.
+        VERIFY_COLLISION:
+            # if the right leg of the doodle is above the left edge of the platform
+            # and if the left leg of the doodle is above the right edge of the platform
+            # we have a collision.
+
+            # In math: if (x[candidate_platform] <= doodle + 8*4) AND (doodle <= x[candidate_platform] + 8*4) => COLLISION!
+
+            # 1. Get the platform's horizontal data.
+            la $t8, row_arr
+            la $t9, platform_arr
+            lw $t0, candidate_platform
+            addi $t1, $zero, 4
+            mult $t0, $t1
+            mflo $t0
+            add $t4, $t0, $t9       # $t4 = addr(platform_arr[candidate_platform])
+            add $t5, $t0, $t8       # $t5 = addr(row_arr[candidate_platform])
+            lw $t0, 0($t4)          # $t0 = platform_arr[candidate_platform]
+            lw $t1, 0($t5)          # $t1 = row_arr[candidate_platform]
+
+            add $t0, $t0, $t1       # $t0 is now the leftmost block of the platform
+
+            lw $t4, doodle_origin
+            addi $t4, $t4, 128      # This way we compare the doodle's horiztonal position against the platform on the same row.
+            addi $t1, $t4, 8        # $t1 = doodle's right leg offset
+            addi $t2, $t0, 28       # $t2 = right edge of platform
+
+            # if $t0 <= $t1 (doodle's right leg) and
+            # if $t4 (doodle's left leg) <= $t2 (right edge)
+            # we have a collision
+            sub $t1, $t1, $t0       # if $t1 >= 0 we collided
+            sub $t2, $t2, $t4       # if $t2 >= 0 we collided
+
+            # Add 1 to both because they could be 0
+            addi $t1, $t1, 1
+            addi $t2, $t2, 1
+
+            VERIFY_COLLISION_BOUNDS:
+                bgtz $t1, CHECK_LEFT_LEG
+                j NO_COLLISION
+
+            CHECK_LEFT_LEG:
+                bgtz $t2, COLLISION
+                j NO_COLLISION
+
+        COLLISION:
+            li $v0, 1
+            jr $ra
+        NO_COLLISION:
+            li $v0, 0
+            jr $ra
 
 Exit:
     li $v0, 10 		# terminate the program gracefully
