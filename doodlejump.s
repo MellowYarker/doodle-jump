@@ -177,17 +177,106 @@
 
     # the character has hit max height and so we have to move the platforms down.
     UPDATE_PLATFORMS:
-        # 1. Erase the current platforms.
-        # put the platform colour on the stack before drawing.
-        lw $t0, background
-        addi $sp, $sp, -4
-        sw $t0, 0($sp)
+        add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
 
-        jal FUNCTION_DRAW_PLATFORM_LOOP
+        MOVE_PLATFORMS:
+            li $v0 32           # sleep for 100 ms
+            addi $a0, $zero, 500
+            syscall
+            addi $t0, $zero, 10
+            beq $s3, $t0, COMPLETE_PLATFORM_UPDATE
 
-        # after everything has finished
-        add $s5, $zero, $zero     # set $s5 to 0, so the next time we enter DRAW_MAP we will draw the platforms
-        j DRAW_MAP
+            addi $s3, $s3, 1    # increment $s3 here since we're already passed the branch operation
+
+            # 1. Erase the current platforms.
+            # put the platform colour on the stack before drawing.
+            lw $t0, background
+            addi $sp, $sp, -4
+            sw $t0, 0($sp)
+
+            jal FUNCTION_DRAW_PLATFORM_LOOP
+
+            # 2. Calculate the new positions
+            add $t0, $zero, $zero
+            la $t8, row_arr
+            la $t9, platform_arr
+            # The algorithm works as follows.
+            # First, we increase each platform's row by 1.
+            # for i in range(len(arr)):
+            #   arr[i] = arr[i] + 1
+            # if arr[0] == 32:      # if our bottom row is off the screen
+            #   arr[0] = arr[1]
+            #   arr[1] = arr[2]
+            #   arr[2] = 2          # i.e the top platform goes to the 3rd row from the top.
+            CALCULATE_NEW_PLATFORM_ROWS:
+                lw $t1, num_platforms
+                # while i < # platforms
+                beq $t0, $t1, CHECK_PLATFORM_OVERFLOW
+
+                add $t2, $zero, 4
+                mult $t0, $t2
+                mflo $t2            # current offset
+
+                add $t3, $t8, $t2   # $t4 = addr(row_arr[i])
+
+                lw $t4, 0($t3)      # $t5 = row_arr[i]
+                addi $t4, $t4, 128  # $t5 += 1 row
+                sw $t4, 0($t3)      # row_arr[i] += 1 row
+
+                # increment and jump to loop condition
+                addi $t0, $t0, 1
+                j CALCULATE_NEW_PLATFORM_ROWS
+
+            # We want to see if the bottom platform has fallen off the map
+            CHECK_PLATFORM_OVERFLOW:
+                # Check if row_arr[0] / 128 == 32
+                lw $t0, 0($t8)          # 0($t8) = row_arr[0]
+                addi $t1, $zero, 128
+                div $t0, $t1
+                mflo $t0
+                addi $t2, $zero, 32
+                # if row_arr[0] / 128 != 32, draw the new platforms
+                bne $t0, $t2, DRAW_NEW_PLATFORMS
+
+                # row_arr[0]/128 == 32 so we have to move our values around
+                lw $t0, 4($t8)      # $t0 = row_arr[1]
+                lw $t1, 8($t8)      # $t1 = row_arr[2]
+                sw $t0, 0($t8)      # row_arr[0] = row_arr[1]
+                sw $t1, 4($t8)      # row_arr[1] = row_arr[2]
+
+                # Note this next instruction.
+                # When the new platform comes in from the top, it will go to the 3rd row
+                # to maintain a distance of 10 rows from the middle platform.
+                addi $t0, $zero, 256
+                sw $t0, 8($t8)      # row_arr[2] = 256, aka the 3rd row.
+
+                # Now we need to move the values in the platform array.
+                lw $t0, 4($t9)      # $t0 = platform_arr[1]
+                lw $t1, 8($t9)      # $t1 = platform_arr[2]
+                sw $t0, 0($t9)      # platform_arr[0] = platform_arr[1]
+                sw $t1, 4($t9)      # platform_arr[1] = platform_arr[2]
+
+                # TODO: MILESTONE 2 we need to generate a random column position here.
+                # For now, just set it to the middle.
+                addi $t0, $zero, 48 # 48 = 12*4 = 12th column.
+                sw $t0, 8($t9)      # platform_arr[2] = 48
+                j DRAW_NEW_PLATFORMS
+
+            DRAW_NEW_PLATFORMS:
+                # put the platform colour on the stack before drawing.
+                lw $t8, platform_colour
+                addi $sp, $sp, -4
+                sw $t8, 0($sp)
+                jal FUNCTION_DRAW_PLATFORM_LOOP
+
+                # Now that we finished drawing the new platforms, go back to the main loop
+                # to see if any work is left.
+                j MOVE_PLATFORMS
+
+        COMPLETE_PLATFORM_UPDATE:
+            # after everything has finished
+            add $s5, $zero, $zero   # set $s5 to 0, so the next time we enter DRAW_MAP we will draw the platforms
+            j DRAW_MAP
 
 Exit:
     li $v0, 10 		# terminate the program gracefully
