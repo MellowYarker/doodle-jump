@@ -49,7 +49,6 @@
     #     when drawing.
     doodle_origin:      .word 0                 # Storing [0, 4092] makes bounds/collision detection easier.
     bounce_height:      .word 14                # Doodle can jump up 14 rows.
-    MAX_HEIGHT:         .word 1152              # 2 rows above the highest platform (when map is rendered)
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
 .text
@@ -74,11 +73,17 @@
         # 4. Sleep
         # 5. Go back to step #1
 
+        jal FUNCTION_COLLISION_DETECTION
+        add $s1, $zero, $v0        # 1 if collision occured, 0 otherwise.
+        addi $t0, $zero, 1
+
+        beq $s1, $t0, JUMP
+
         li $v0 32
         addi $a0, $zero, 500
         syscall
 
-        j UPDATE_PLATFORMS
+        j GAME_LOOP
 
     DRAW_BACKGROUND:
         # first, we want to make sure we're not at the last block
@@ -103,12 +108,7 @@
         beq $s5, $t2, SET_PLATFORMS
         # if $s7 is 0, draw the doodle, otherwise skip
         beq $s7, $t2, SET_DOODLE
-        # make the doodle start to bounce and then go
-        jal FUNCTION_COLLISION_DETECTION
-        add $s1, $zero, $v0        # 1 if collision occured, 0 otherwise.
-        addi $t0, $zero, 1
-        # TODO: delete this.
-        beq $s1, $t0, Exit
+        # Start the game.
         j GAME_LOOP
 
     # In SET_PLATFORMS we determine the horizontal position of each platform.
@@ -452,6 +452,88 @@
         NO_COLLISION:
             li $v0, 0
             jr $ra
+
+    JUMP:
+        add $s1, $zero, $zero       # $s1 will be our counter that lets us know how many more times we have to move the doodle up
+        la $t8, row_arr
+
+        BOUNCE_LOOP:
+            # add a small sleep.
+            li $v0, 32
+            addi $a0, $zero, 500
+            syscall
+
+            lw $t0, bounce_height   # highest we can jump
+            beq $s1, $t0, GAME_LOOP # TODO: send the doodle to "FALL" at this point
+
+            addi $s1, $s1, 1        # increment our counter
+
+            # the highest we can go is the height of the top platform, so we need to store that to perform checks.
+            lw $t0, 8($t8)
+            addi $t0, $t0, 124      # get last block of the top platforms row.
+
+            # if doodle <= $t0, we have to redraw the map.
+            lw $t1, doodle_origin
+
+            sub $t0, $t0, $t1
+            addi $t0, $t0, 1
+
+            # If $t0 is positive, we have to redraw
+            bgtz $t0, UPDATE_PLATFORMS
+
+            # Bounce!
+
+            # First, we need to erase our doodle.
+            lw $t0, background
+            addi $sp, $sp, -4
+            sw $t0, ($sp)
+            jal FUNCTION_DRAW_DOODLE
+
+            # We need to send our friend the doodle up 1 row.
+            la $t2, doodle_origin
+            lw $t1, 0($t2)
+            addi $t1, $t1, -128     # doodle position + 1 row
+            sw $t1, 0($t2)          # update doodle_origin
+
+            # Next, we need to look into updating the candidate_platform variable.
+            lw $t0, candidate_platform
+            # If we're 1 row above row_arr[candidate_platform + 1], we need to update candidate_platform
+            addi $t2, $zero, 4
+            mult $t0, $t2
+            mflo $t0
+            addi $t0, $t0, 4
+            add $t0, $t0, $t8
+            lw $t3, 0($t0)          # $t3 = row_arr[candidate_platform + 1]
+
+            addi $t3, $t3, -4        # end of row directly above the platform above our current candidate_platform
+
+            sub $t0, $t1, $t3
+            addi $t0, $t0, 1
+
+            # place the doodle colour on the stack before calling FUNCTION_DRAW_DOODLE
+            lw $t1, doodle_colour
+            addi $sp, $sp, -4
+            sw $t1, ($sp)
+
+            # If $t0 is positive, then the doodle is 1 row above the top platform, so we need to update the candidate_platform variable.
+            bgtz, $t0, UPDATE_CANDIDATE_PLATFORM
+
+            jal FUNCTION_DRAW_DOODLE
+            j BOUNCE_LOOP
+
+            UPDATE_CANDIDATE_PLATFORM:
+                la $t0, candidate_platform
+                lw $t1, 0($t0)
+                addi $t1, $t1, 1
+                sw $t1, 0($t0)
+                jal FUNCTION_DRAW_DOODLE
+                # Since we may have passed through the platform, redraw the platforms.
+                lw $t1, platform_colour
+                addi $sp, $sp, -4
+                sw $t1, ($sp)
+
+                jal FUNCTION_DRAW_PLATFORM_LOOP
+                j BOUNCE_LOOP
 
 Exit:
     li $v0, 10 		# terminate the program gracefully
