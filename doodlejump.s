@@ -46,26 +46,41 @@
         add $s1, $zero, $s0     # $s1 stores the location of the current block
 
         # ~~platforms~~
-        add $s5, $zero, $zero   # 0 => draw platforms, 1 => do not draw platforms
+        add $s5, $zero, $zero   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
         j DRAW_BACKGROUND
+
+    # this section of code is where we are idle.
+    GAME_LOOP:
+        # 1. Check for keyboard input
+        #   a. Update the location of the doodle
+        #   b. Check for collision events.
+        # 2. If doodle is at max height, update platforms
+        #   a. We're going to have to check if the keys are pressed while the platforms are updated.
+        # 3. Redraw screen
+        # 4. Sleep
+        # 5. Go back to step #1
+
+        li $v0 32
+        addi $a0, $zero, 500
+        syscall
+
+        j UPDATE_PLATFORMS
 
     DRAW_BACKGROUND:
         # first, we want to make sure we're not at the last block
         addi $t2, $s0, 4096 # based address + 4096
-        # If testing, uncomment this to avoid painting the white screen.
-        # add $s1, $zero, $t2
-        # if we've drawn the background, start drawing the map
-        beq $s1, $t2, DRAW_MAP
+        # if we've drawn the background, start other assets.
+        beq $s1, $t2, SETUP_GAME
 
         # otherwise, make the block white and increment!
-        lw $t0, background  # Store the background colour in $t0
-        sw $t0, 0($s1)      # $s1 points to a location in memory, we are accessing the memory
-        addi $s1, $s1, 4    # here, we are modifying the value of the address stored at $s1
+        lw $t0, background
+        sw $t0, 0($s1)
+        addi $s1, $s1, 4
 
         # go to the top of the loop.
         j DRAW_BACKGROUND
 
-    DRAW_MAP:
+    SETUP_GAME:
         lw $s0, displayAddress
         add $s1, $zero, $s0 # current block
         # We always have 3 platforms visible.
@@ -73,9 +88,8 @@
 
         # if $s5 is 0, draw the platforms, otherwise skip
         beq $s5, $t2, SET_PLATFORMS
-        # do stuff like draw the character.
-        j UPDATE_PLATFORMS
-        j DRAW_MAP
+        # TODO: Set up and draw the character.
+        j GAME_LOOP
 
     # In SET_PLATFORMS we determine the horizontal position of each platform.
     SET_PLATFORMS:
@@ -110,9 +124,9 @@
 
         jal FUNCTION_DRAW_PLATFORM_LOOP
 
-        # set $s5 to 1 to indicate we should not draw the platforms until later.
+        # set $s5 to 1 to indicate we have drawn the starting platforms.
         addi $s5, $zero, 1
-        j DRAW_MAP
+        j SETUP_GAME
 
     FUNCTION_DRAW_PLATFORM_LOOP:
         # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
@@ -121,12 +135,13 @@
         lw $t7, 0($sp)      # get the colour off the stack
         addi $sp, $sp, 4    # reset the stack pointer
 
+        lw $s0, displayAddress  # base address
         # Throughout FUNCTION_DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
         add $s2, $zero, $zero
+        la $t8, row_arr         # our array of row indexes
+        la $t9, platform_arr    # our array of platform origins
 
         GET_PLATFORM:
-            la $t8, row_arr         # our array of row indexes
-            la $t9, platform_arr    # our array of platform origins
             lw $t1, num_platforms   # loop condition
             addi $t2, $zero, 4
             mult $t1, $t2
@@ -137,7 +152,6 @@
 
             # Draw the current platform from our array.
             add $t2, $zero, $zero   # current block being drawn.
-            lw $s0, displayAddress  # base address
             lw $t3, platform_width
             addi $t4, $zero, 4
             mult $t3, $t4
@@ -181,7 +195,7 @@
 
         MOVE_PLATFORMS:
             li $v0 32           # sleep for 100 ms
-            addi $a0, $zero, 500
+            addi $a0, $zero, 150
             syscall
             addi $t0, $zero, 10
             beq $s3, $t0, COMPLETE_PLATFORM_UPDATE
@@ -229,16 +243,13 @@
 
             # We want to see if the bottom platform has fallen off the map
             CHECK_PLATFORM_OVERFLOW:
-                # Check if row_arr[0] / 128 == 32
+                # Check if row_arr[0] == 4096 == 32 (row) * 128
                 lw $t0, 0($t8)          # 0($t8) = row_arr[0]
-                addi $t1, $zero, 128
-                div $t0, $t1
-                mflo $t0
-                addi $t2, $zero, 32
-                # if row_arr[0] / 128 != 32, draw the new platforms
+                addi $t2, $zero, 4096
+                # if row_arr[0] != 4096, draw the new platforms
                 bne $t0, $t2, DRAW_NEW_PLATFORMS
 
-                # row_arr[0]/128 == 32 so we have to move our values around
+                # row_arr[0] == 4096 so we have to move our values around
                 lw $t0, 4($t8)      # $t0 = row_arr[1]
                 lw $t1, 8($t8)      # $t1 = row_arr[2]
                 sw $t0, 0($t8)      # row_arr[0] = row_arr[1]
@@ -248,7 +259,7 @@
                 # When the new platform comes in from the top, it will go to the 3rd row
                 # to maintain a distance of 10 rows from the middle platform.
                 addi $t0, $zero, 256
-                sw $t0, 8($t8)      # row_arr[2] = 256, aka the 3rd row.
+                sw $t0, 8($t8)      # row_arr[2] = 256, aka the 3rd row (256 = 2 * 128).
 
                 # Now we need to move the values in the platform array.
                 lw $t0, 4($t9)      # $t0 = platform_arr[1]
@@ -264,9 +275,9 @@
 
             DRAW_NEW_PLATFORMS:
                 # put the platform colour on the stack before drawing.
-                lw $t8, platform_colour
+                lw $t0, platform_colour
                 addi $sp, $sp, -4
-                sw $t8, 0($sp)
+                sw $t0, 0($sp)
                 jal FUNCTION_DRAW_PLATFORM_LOOP
 
                 # Now that we finished drawing the new platforms, go back to the main loop
@@ -275,8 +286,7 @@
 
         COMPLETE_PLATFORM_UPDATE:
             # after everything has finished
-            add $s5, $zero, $zero   # set $s5 to 0, so the next time we enter DRAW_MAP we will draw the platforms
-            j DRAW_MAP
+            j GAME_LOOP
 
 Exit:
     li $v0, 10 		# terminate the program gracefully
