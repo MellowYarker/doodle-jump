@@ -26,6 +26,8 @@
 #
 #####################################################################
 .data
+    jump_sleep_time:    .word 100               # ms to sleep between drawing
+    platform_sleep:     .word 30
     background:         .word 0xffffff          # Background colour of the display
     doodle_colour:      .word 0x000fff
     platform_colour:    .word 0x00ff00
@@ -73,17 +75,18 @@
         # 4. Sleep
         # 5. Go back to step #1
 
-        jal FUNCTION_COLLISION_DETECTION
-        add $s1, $zero, $v0        # 1 if collision occured, 0 otherwise.
-        addi $t0, $zero, 1
+        j FALL
+        #jal FUNCTION_COLLISION_DETECTION
+        #add $s1, $zero, $v0        # 1 if collision occured, 0 otherwise.
+        #addi $t0, $zero, 1
 
-        beq $s1, $t0, JUMP
+        #beq $s1, $t0, JUMP
+        # FALL at this point
+        #li $v0 32
+        #addi $a0, $zero, 500
+        #syscall
 
-        li $v0 32
-        addi $a0, $zero, 500
-        syscall
-
-        j GAME_LOOP
+        #j GAME_LOOP
 
     DRAW_BACKGROUND:
         # first, we want to make sure we're not at the last block
@@ -108,6 +111,7 @@
         beq $s5, $t2, SET_PLATFORMS
         # if $s7 is 0, draw the doodle, otherwise skip
         beq $s7, $t2, SET_DOODLE
+        addi $s5, $zero, 0
         # Start the game.
         j GAME_LOOP
 
@@ -148,9 +152,8 @@
         addi $s5, $zero, 1
         j SETUP_GAME
 
-    # In SET_DOODLE, we want to initiate the doodle above the (centre?)
-    # of the bottom platform.
-    # Since the platforms have been validated, we don't need to check any errors.
+    # In SET_DOODLE, we want to initiate the doodle above the bottom platform.
+    # Since the platforms have been validated, we don't need to check any bounds.
     SET_DOODLE:
         lw $t0, platform_arr
         lw $t1, row_arr
@@ -267,9 +270,11 @@
 
         # TODO: in between each platform decrement, we have to check for doodle movement.
         MOVE_PLATFORMS:
-            li $v0 32           # sleep for 100 ms
-            addi $a0, $zero, 150
+            # sleep
+            li $v0 32
+            lw $a0, platform_sleep
             syscall
+
             addi $t0, $zero, 10
             beq $s3, $t0, COMPLETE_PLATFORM_UPDATE
 
@@ -366,8 +371,9 @@
     # We rely on the `candidate_platform` variable here.
     #
     # Returns:
-    #   0 if no collision
-    #   1 if collision detected
+    #    0 if no collision
+    #    1 if collision detected
+    #   -1 if we fell past the candidate platform
     FUNCTION_COLLISION_DETECTION:
         # First, we want to determine if we're 1 row above the platform
         la $t8, row_arr
@@ -440,18 +446,78 @@
 
             VERIFY_COLLISION_BOUNDS:
                 bgtz $t1, CHECK_LEFT_LEG
-                j NO_COLLISION
+                j FELL_PAST_PLATFORM
 
             CHECK_LEFT_LEG:
                 bgtz $t2, COLLISION
-                j NO_COLLISION
+                j FELL_PAST_PLATFORM
 
         COLLISION:
             li $v0, 1
             jr $ra
+
         NO_COLLISION:
             li $v0, 0
             jr $ra
+
+        FELL_PAST_PLATFORM:
+            li $v0, -1
+            jr $ra
+
+    FALL:
+        jal FUNCTION_COLLISION_DETECTION
+        add $s4, $zero, $v0        # 1 if collision occured, 0 if no platform nearby, -1 if fell past platform.
+        addi $t1, $zero, 1
+
+        beq $s4, $t1, JUMP
+
+        # We're falling at this point, deal with it.
+        # First, lets check if we fell past the platform, since it could mean game over.
+        addi $t1, $zero, -1
+        beq $s4, $t1, DECREMENT_CANDIDATE_PLATFORM
+        j HANDLE_FALL
+
+        DECREMENT_CANDIDATE_PLATFORM:
+            lw $t0, candidate_platform
+            add $t1, $zero, $zero   # unnecessary, but just for safe keeping.
+            beq $t0, $t1, GAME_END
+
+            # Otherwise, just decrement the candidate_platform
+            addi $t0, $t0, -1
+            la $t1, candidate_platform
+            sw $t0, 0($t1)
+
+        HANDLE_FALL:
+            # add a small sleep.
+            li $v0, 32
+            lw $a0, jump_sleep_time
+            syscall
+
+            # First, we erase our doodle, then redraw.
+            lw $t0, background
+            addi $sp, $sp, -4
+            sw $t0, ($sp)
+            jal FUNCTION_DRAW_DOODLE
+
+            # We need to send our friend the doodle down 1 row.
+            la $t2, doodle_origin
+            lw $t1, 0($t2)
+            addi $t1, $t1, 128      # doodle position - 1 row
+            sw $t1, 0($t2)          # update doodle_origin
+
+            # Draw the doodle in the new position.
+            lw $t0, doodle_colour
+            addi $sp, $sp, -4
+            sw $t0, ($sp)
+            jal FUNCTION_DRAW_DOODLE
+
+            # Redraw platform TODO: test this
+            lw $t0, platform_colour
+            addi $sp, $sp, -4
+            sw $t0, ($sp)
+            jal FUNCTION_DRAW_PLATFORM_LOOP
+
+            j FALL
 
     JUMP:
         add $s1, $zero, $zero       # $s1 will be our counter that lets us know how many more times we have to move the doodle up
@@ -460,11 +526,11 @@
         BOUNCE_LOOP:
             # add a small sleep.
             li $v0, 32
-            addi $a0, $zero, 500
+            lw $a0, jump_sleep_time
             syscall
 
             lw $t0, bounce_height   # highest we can jump
-            beq $s1, $t0, GAME_LOOP # TODO: send the doodle to "FALL" at this point
+            beq $s1, $t0, FALL      # TODO: send the doodle to "FALL" at this point
 
             addi $s1, $s1, 1        # increment our counter
 
@@ -507,7 +573,7 @@
 
             addi $t3, $t3, -4        # end of row directly above the platform above our current candidate_platform
 
-            sub $t0, $t1, $t3
+            sub $t0, $t3, $t1
             addi $t0, $t0, 1
 
             # place the doodle colour on the stack before calling FUNCTION_DRAW_DOODLE
@@ -516,12 +582,12 @@
             sw $t1, ($sp)
 
             # If $t0 is positive, then the doodle is 1 row above the top platform, so we need to update the candidate_platform variable.
-            bgtz, $t0, UPDATE_CANDIDATE_PLATFORM
+            bgtz, $t0, INCREMENT_CANDIDATE_PLATFORM
 
             jal FUNCTION_DRAW_DOODLE
             j BOUNCE_LOOP
 
-            UPDATE_CANDIDATE_PLATFORM:
+            INCREMENT_CANDIDATE_PLATFORM:
                 la $t0, candidate_platform
                 lw $t1, 0($t0)
                 addi $t1, $t1, 1
@@ -535,6 +601,6 @@
                 jal FUNCTION_DRAW_PLATFORM_LOOP
                 j BOUNCE_LOOP
 
-Exit:
+GAME_END:
     li $v0, 10 		# terminate the program gracefully
     syscall
