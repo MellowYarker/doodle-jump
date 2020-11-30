@@ -64,29 +64,13 @@
         add $s7, $0, $0         # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
         j DRAW_BACKGROUND
 
-    # this section of code is where we are idle.
+    # If we ever enter the game loop, just start falling.
     GAME_LOOP:
-        # 1. Check for keyboard input
-        #   a. Update the location of the doodle
-        #   b. Check for collision events.
-        # 2. If doodle is at max height, update platforms
-        #   a. We're going to have to check if the keys are pressed while the platforms are updated.
-        # 3. Redraw screen
-        # 4. Sleep
-        # 5. Go back to step #1
-
+        # Rather than have a main loop, I've decided to just
+        # alternate between falling and jumping. While running
+        # those sections of code, we will check for user input
+        # and redraw the map as necessary.
         j FALL
-        #jal FUNCTION_COLLISION_DETECTION
-        #add $s1, $zero, $v0        # 1 if collision occured, 0 otherwise.
-        #addi $t0, $zero, 1
-
-        #beq $s1, $t0, JUMP
-        # FALL at this point
-        #li $v0 32
-        #addi $a0, $zero, 500
-        #syscall
-
-        #j GAME_LOOP
 
     DRAW_BACKGROUND:
         # first, we want to make sure we're not at the last block
@@ -111,7 +95,11 @@
         beq $s5, $t2, SET_PLATFORMS
         # if $s7 is 0, draw the doodle, otherwise skip
         beq $s7, $t2, SET_DOODLE
-        addi $s5, $zero, 0
+
+        # We don't need these values anymore, we will never enter the setup section again.
+        add $s5, $zero, $zero
+        add $s7, $zero, $zero
+
         # Start the game.
         j GAME_LOOP
 
@@ -119,7 +107,6 @@
     SET_PLATFORMS:
         # 1. set the left bound of each platform
         #       TODO: will need bounds checking later.
-        # platform width = 8 blocks
         # left most is column 12 (default for testing)
 
         # want column index 12*4 = 48, rows 31, 21, and 11
@@ -171,11 +158,10 @@
         addi $s7, $zero, 1      # $s7 = 1, so we have finished drawing the initial doodle.
         j SETUP_GAME
 
-    # Draw the doodle given the bottom left block
+    # Draw the doodle starting from the bottom left block
     # If we enter this function, we assume that the bounds checks etc have all been done.
     FUNCTION_DRAW_DOODLE:
-        # $t0 = colour of the doodle.
-        lw $t0, 0($sp)
+        lw $t0, 0($sp)          # $t0 = the colour we're using
         addi $sp, $sp, 4
 
         lw $t1, doodle_origin
@@ -187,7 +173,7 @@
         #	 5. Origin - 120
         #	 6. Origin - 252
 
-        add $t1, $t1, $s0   # recall $s0 = displayAddress
+        add $t1, $t1, $s0       # recall $s0 = displayAddress
         addi $t2, $t1, 8
         addi $t3, $t1, -128
         addi $t4, $t1, -124
@@ -249,11 +235,11 @@
             DRAW_CURRENT_PLATFORM:
                 # while i < platform_width, draw this platform
                 beq $t2, $t3, NEXT_PLATFORM
-                addi $s6, $s6, 4    # current block to colour
                 sw $t7, 0($s6)      # draw the block the chosen colour
 
                 # increment the block and go to the loop condition
                 addi $t2, $t2, 4
+                addi $s6, $s6, 4    # Draw this block next.
                 j DRAW_CURRENT_PLATFORM
 
             NEXT_PLATFORM:
@@ -264,7 +250,7 @@
             COMPLETE_PLATFORM:
                 jr $ra
 
-    # the character has hit max height and so we have to move the platforms down.
+    # the doodle has hit max height and so we have to move the platforms down.
     UPDATE_PLATFORMS:
         add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
 
@@ -288,10 +274,19 @@
 
             jal FUNCTION_DRAW_PLATFORM_LOOP
 
+            # TODO: This removes the missing legs glitch. Is there a better way to handle it?
+            # The doodle may have gone through a platform, and since we redraw platforms here,
+            # we may have cut off part of the doodle's body, so we redraw here.
+            lw $t1, doodle_colour
+            addi $sp, $sp, -4
+            sw $t1, ($sp)
+            jal FUNCTION_DRAW_DOODLE
+
             # 2. Calculate the new positions
             add $t0, $zero, $zero
             la $t8, row_arr
             la $t9, platform_arr
+
             # The algorithm works as follows.
             # First, we increase each platform's row by 1.
             # for i in range(len(arr)):
@@ -511,7 +506,12 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
-            # Redraw platform TODO: test this
+            # Redraw platform
+            # TODO: When we move the map (doodle hit max height), the doodle may be "inside"
+            #       the top platform. Therefore, when it falls, as we erase it, we erase
+            #       the platform as well, so we're taking this into account by redrawing it here.
+            # There has to be a more efficient way to do this, I don't want to draw in a bunch of edge
+            # cases, it's adding complexity.
             lw $t0, platform_colour
             addi $sp, $sp, -4
             sw $t0, ($sp)
@@ -530,7 +530,7 @@
             syscall
 
             lw $t0, bounce_height   # highest we can jump
-            beq $s1, $t0, FALL      # TODO: send the doodle to "FALL" at this point
+            beq $s1, $t0, FALL
 
             addi $s1, $s1, 1        # increment our counter
 
@@ -548,7 +548,6 @@
             bgtz $t0, UPDATE_PLATFORMS
 
             # Bounce!
-
             # First, we need to erase our doodle.
             lw $t0, background
             addi $sp, $sp, -4
@@ -593,6 +592,7 @@
                 addi $t1, $t1, 1
                 sw $t1, 0($t0)
                 jal FUNCTION_DRAW_DOODLE
+
                 # Since we may have passed through the platform, redraw the platforms.
                 lw $t1, platform_colour
                 addi $sp, $sp, -4
