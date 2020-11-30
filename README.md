@@ -2,7 +2,17 @@
 
 The last 100m of CSC258, Doodle Jump in MIPS Assembly.
 
-This README is a WIP, currently has a few notes and ideas tossed around, nothing substantial in terms of code just yet. I will update this page as is necessary to reflect the state of the code.
+I will update this page as is necessary to reflect the state of the code.
+
+## MILESTONES
+-[x] Milestone 1
+-   Draw at least three platforms.
+-   Make the doodle jump and fall.
+-   Redraw the map when the doodle jumps to the maximum height.
+-[ ] Milestone 2
+-[ ] Milestone 3
+-[ ] Milestone 4
+-[ ] Milestone 5
 
 ## Character Movement
 ### Screen Wrap
