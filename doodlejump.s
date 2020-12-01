@@ -159,19 +159,23 @@
         j SETUP_GAME
 
     # Draw the doodle starting from the bottom left block
-    # TODO: We have to consider if the doodle is wrapping around the edge of the screen.
-    #       A simple way to determine this is checking if:
-    #           (doodle_origin - 124) % 32 == 0 or (doodle_origin -124 + 4) % 32 == 0
-    #       This effectively checks if the doodle wraps 1 or 2 blocks.
-    #       Note:   We have to "shift" doodle_origin by 124 to the left before
-    #               calculating the result (mod 32). This is due to the fact that
-    #               the top right corner is offset 124, and all offsets on the right edge
-    #               of the display can be obtained via 124 + n*128, where n is the desired row
-    #               (starting at 0).
+    # We have to consider if the doodle is wrapping around the edge of the screen.
+    #       A simple way to determine if a block is in the right most row is checking if:
+    #           (OFFSET / 4) === 31 (mod 32).
     #
-    #               This means we can determine if we're on the right side of the display since
-    #                         offset = 124 + n*128 => offset = 28 (mod 32)
-    #                   offset - 124 = n*128       => offset =  0 (mod 32)
+    #       The reasoning for the equation is as follows.
+    #           Suppose a, b, and C are given integers.
+    #           Then C = a*x + b*y  has integer solutions x and y <==> gcd(a, b) | C.
+    #       In our case, C = OFFSET, a = 4, b = 128, as OFFSET = 4*col + 128*row.
+    #       Since gcd(4, 128) = 4, and we know 4 | OFFSET, we have:
+    #           C / 4 = x * 32y
+    #           K = x * 32y
+    #
+    #       Thus, rearranging the equation we see:
+    #           y = (K - x)/32
+    #       Then K === x (mod 32). Since we want to know if we're in the 31st column,
+    #       we let x = 31, which gives the equation:
+    #           K === 31 (mod 32), where K is C (the offset) divided by 4.
     FUNCTION_DRAW_DOODLE:
         lw $t0, 0($sp)          # $t0 = the colour we're using
         addi $sp, $sp, 4
@@ -186,12 +190,15 @@
 
         # Now we perform some bounds checks.
         # First, check if the left side of the doodle is on the edge.
-        addi $t2, $t1, -124      # normalize before performing modular arithmetic.
         addi $t3, $zero, 32
-        div $t2, $t3
-        mfhi $t2                # doodle_origin (mod) 32
-        addi $t3, $zero, 0
+        addi $t4, $zero, 4
+        div $t1, $t4
+        mflo $t4                # doodle_origin / 4 = K
+        div $t4, $t3
+        mfhi $t2                # K (mod 32)
+        addi $t3, $zero, 31
 
+        # Branch if K === 31 (mod 32)
         beq $t2, $t3, LEFT_ON_EDGE
 
         # It's safe to draw the middle of the doodle at this point.
@@ -204,12 +211,17 @@
 
         # Check if the middle of the doodle is on the edge.
         addi $t2, $t1, 4
-        addi $t2, $t2, -124     # normalize before performing modular arithmetic.
         addi $t3, $zero, 32
-        div $t2, $t3
-        mfhi $t2                # (doodle_origin + 4) (mod) 32
-        addi $t3, $zero, 0
 
+        addi $t4, $zero, 4
+        div $t2, $t4
+        mflo $t4                # (doodle_origin + 4) / 4 = K
+
+        div $t4, $t3
+        mfhi $t2                # K (mod) 32
+        addi $t3, $zero, 31
+
+        # Branch if K === 31 (mod 32)
         beq $t2, $t3, MIDDLE_ON_EDGE
 
         # At this point, we just complete a normal doodle drawing.
@@ -263,6 +275,20 @@
 
         END_DOODLE_DRAWING:
             jr $ra
+
+    # TODO: Update the doodle's horizontal position
+    # We take in an argument (+/- 1)
+    #   If arg = -1, we move left, if arg = +1, we move right.
+    FUNCTION_UPDATE_DOODLE:
+        lw $t0, 0($sp)      # Get the direction off the stack
+        addi $sp, $sp, 4
+
+        # Case 1: Doodle_origin % 0
+
+        # General case for movement
+        # addi $t1, $zero, 4
+        # mult $t0, $t1
+        # mflo $t0           # Offset
 
     FUNCTION_DRAW_PLATFORM_LOOP:
         # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
