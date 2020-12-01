@@ -159,36 +159,110 @@
         j SETUP_GAME
 
     # Draw the doodle starting from the bottom left block
-    # If we enter this function, we assume that the bounds checks etc have all been done.
+    # TODO: We have to consider if the doodle is wrapping around the edge of the screen.
+    #       A simple way to determine this is checking if:
+    #           (doodle_origin - 124) % 32 == 0 or (doodle_origin -124 + 4) % 32 == 0
+    #       This effectively checks if the doodle wraps 1 or 2 blocks.
+    #       Note:   We have to "shift" doodle_origin by 124 to the left before
+    #               calculating the result (mod 32). This is due to the fact that
+    #               the top right corner is offset 124, and all offsets on the right edge
+    #               of the display can be obtained via 124 + n*128, where n is the desired row
+    #               (starting at 0).
+    #
+    #               This means we can determine if we're on the right side of the display since
+    #                         offset = 124 + n*128 => offset = 28 (mod 32)
+    #                   offset - 124 = n*128       => offset =  0 (mod 32)
     FUNCTION_DRAW_DOODLE:
         lw $t0, 0($sp)          # $t0 = the colour we're using
         addi $sp, $sp, 4
 
         lw $t1, doodle_origin
-        # Draw as follows:
-        #	 1. Origin
-        #	 2. Origin + 8
-        #	 3. Origin - 128
-        #	 4. Origin - 124
-        #	 5. Origin - 120
-        #	 6. Origin - 252
 
-        add $t1, $t1, $s0       # recall $s0 = displayAddress
-        addi $t2, $t1, 8
-        addi $t3, $t1, -128
-        addi $t4, $t1, -124
-        addi $t5, $t1, -120
-        addi $t6, $t1, -252
-
-        # draw each location
-        sw $t0, 0($t1)
+        # Draw the left side of the doodle
+        add $t2, $t1, $s0       # recall $s0 = displayAddress
+        addi $t3, $t2, -128
         sw $t0, 0($t2)
         sw $t0, 0($t3)
-        sw $t0, 0($t4)
-        sw $t0, 0($t5)
-        sw $t0, 0($t6)
 
-        jr $ra
+        # Now we perform some bounds checks.
+        # First, check if the left side of the doodle is on the edge.
+        addi $t2, $t1, -124      # normalize before performing modular arithmetic.
+        addi $t3, $zero, 32
+        div $t2, $t3
+        mfhi $t2                # doodle_origin (mod) 32
+        addi $t3, $zero, 0
+
+        beq $t2, $t3, LEFT_ON_EDGE
+
+        # It's safe to draw the middle of the doodle at this point.
+        addi $t2, $t1, -124     # middle piece
+        addi $t3, $t1, -252     # top piece
+        add $t2, $t2, $s0
+        add $t3, $t3, $s0
+        sw $t0, 0($t2)
+        sw $t0, 0($t3)
+
+        # Check if the middle of the doodle is on the edge.
+        addi $t2, $t1, 4
+        addi $t2, $t2, -124     # normalize before performing modular arithmetic.
+        addi $t3, $zero, 32
+        div $t2, $t3
+        mfhi $t2                # (doodle_origin + 4) (mod) 32
+        addi $t3, $zero, 0
+
+        beq $t2, $t3, MIDDLE_ON_EDGE
+
+        # At this point, we just complete a normal doodle drawing.
+        addi $t2, $t1, 8        # bottom right
+        addi $t3, $t1, -120     # top right
+        add $t2, $t2, $s0
+        add $t3, $t3, $s0
+        sw $t0, 0($t2)
+        sw $t0, 0($t3)
+
+        j END_DOODLE_DRAWING
+
+        # the left side of the doodle is on the right edge of the map
+        LEFT_ON_EDGE:
+            # We have to draw the middle and right side of the doodle
+            # on the left side of the map
+
+            # "right side" of doodle
+            addi $t2, $t1, -120         # First block of row
+            addi $t3, $t2, -128         # First block of row above
+
+            # centre
+            addi $t4, $t1, -124
+            addi $t4, $t4, -128
+            addi $t5, $t4, -128         # 1 row above $t4
+
+            add $t2, $t2, $s0
+            add $t3, $t3, $s0
+            add $t4, $t4, $s0
+            add $t5, $t5, $s0
+
+            sw $t0, 0($t2)
+            sw $t0, 0($t3)
+            sw $t0, 0($t4)
+            sw $t0, 0($t5)
+
+            j END_DOODLE_DRAWING
+
+        MIDDLE_ON_EDGE:
+            # We have to draw the "right side" of the doodle on the left of the map.
+            addi $t2, $t1, -120         # doodle_origin + 4 - 124 = doodle_origin - 120
+            addi $t3, $t2, -128         # 1 row above
+
+            add $t2, $t2, $s0
+            add $t3, $t3, $s0
+
+            sw $t0, 0($t2)
+            sw $t0, 0($t3)
+
+            j END_DOODLE_DRAWING
+
+        END_DOODLE_DRAWING:
+            jr $ra
 
     FUNCTION_DRAW_PLATFORM_LOOP:
         # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
@@ -273,6 +347,11 @@
             sw $t0, 0($sp)
 
             jal FUNCTION_DRAW_PLATFORM_LOOP
+
+
+            # TODO: MS2 - We may want to check for keyboard movement here.
+            #       Reason: We've just moved the platforms down a row and are going to redraw the doodle
+            #               anyways, so we might as well check to see if the player wants to move.
 
             # TODO: This removes the missing legs glitch. Is there a better way to handle it?
             # The doodle may have gone through a platform, and since we redraw platforms here,
@@ -494,6 +573,8 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
+            # TODO: MS2 - We may want to check for keyboard movement here.
+            #       Reason: We've just erased the doodle and we're going to reposition it anyways.
             # We need to send our friend the doodle down 1 row.
             la $t2, doodle_origin
             lw $t1, 0($t2)
@@ -554,6 +635,8 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
+            # TODO: MS2 - We may want to check for keyboard movement here.
+            #       Reason: We've just erased the doodle and we're going to reposition it anyways.
             # We need to send our friend the doodle up 1 row.
             la $t2, doodle_origin
             lw $t1, 0($t2)
