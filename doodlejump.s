@@ -160,7 +160,7 @@
 
     # Draw the doodle starting from the bottom left block
     # We have to consider if the doodle is wrapping around the edge of the screen.
-    #       A simple way to determine if a block is in the right most row is checking if:
+    #       A simple way to determine if a block is in the right most column is checking if:
     #           (OFFSET / 4) === 31 (mod 32).
     #
     #       The reasoning for the equation is as follows.
@@ -168,8 +168,8 @@
     #           Then C = a*x + b*y  has integer solutions x and y <==> gcd(a, b) | C.
     #       In our case, C = OFFSET, a = 4, b = 128, as OFFSET = 4*col + 128*row.
     #       Since gcd(4, 128) = 4, and we know 4 | OFFSET, we have:
-    #           C / 4 = x * 32y
-    #           K = x * 32y
+    #           C / 4 = x + 32y
+    #           K = x + 32y
     #
     #       Thus, rearranging the equation we see:
     #           y = (K - x)/32
@@ -283,12 +283,62 @@
         lw $t0, 0($sp)      # Get the direction off the stack
         addi $sp, $sp, 4
 
-        # Case 1: Doodle_origin % 0
+        lw $t1, doodle_origin
+        # set up for bounds check
+        addi $t2, $zero, 32
 
-        # General case for movement
-        # addi $t1, $zero, 4
-        # mult $t0, $t1
-        # mflo $t0           # Offset
+        addi $t4, $zero, 4
+        div $t2, $t4
+        mflo $t4                # (doodle_origin) / 4 = K
+
+        div $t4, $t3
+        mfhi $t2                # K (mod) 32
+
+        li $t5, -1
+        # First, figure out if we're going right or left.
+        beq $t0, $t5, MOVE_LEFT
+        j MOVE_RIGHT
+
+        MOVE_LEFT:
+            # Now we have to check to make sure the doodle isn't on the left edge of the screen.
+            # doodle_origin/4 % 32 == 0
+            add $t3, $zero, $zero
+            beq $t2, $t3, LEFT_EDGE # doodle's on the left edge
+            j NORMAL_MOVEMENT
+
+            # Move the doodle's origin to the right side of the screen.
+            LEFT_EDGE:
+               addi $t1, $t1, 124
+               la $t2, doodle_origin
+               sw $t1, 0($t2)
+               j END_DOODLE_UPDATE
+
+        MOVE_RIGHT:
+            # We have to check to make sure the doodle isn't on the right most edge of the screen.
+            # doodle_origin / 4 % 32 == 31
+            addi $t3, $zero, 31
+            beq $t2, $t3, RIGHT_EDGE
+            j NORMAL_MOVEMENT
+
+            # Move the doodle's origin to the left side of the screen.
+            RIGHT_EDGE:
+               addi $t1, $t1, -124
+               la $t2, doodle_origin
+               sw $t1, 0($t2)
+               j END_DOODLE_UPDATE
+
+        NORMAL_MOVEMENT:
+            # General case for movement
+            addi $t2, $zero, 4
+            mult $t0, $t2
+            mflo $t0                # Offset (+/-4)
+            la $t2, doodle_origin
+            add $t1, $t1, $t0       # doodle_origin += offset
+            sw $t1, 0($t2)
+            j END_UPDATE_DOODLE
+
+        END_UPDATE_DOODLE:
+            jr $ra
 
     FUNCTION_DRAW_PLATFORM_LOOP:
         # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
