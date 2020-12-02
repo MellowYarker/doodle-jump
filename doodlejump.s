@@ -33,6 +33,8 @@
     platform_colour:    .word 0x00ff00
 
     displayAddress:     .word 0x10008000
+    keyPress:           .word 0xffff0000
+    keyValue:           .word 0xffff0004
 
     platform_width:     .word 8                 # platform width
     num_platforms:      .word 3
@@ -158,6 +160,48 @@
         addi $s7, $zero, 1      # $s7 = 1, so we have finished drawing the initial doodle.
         j SETUP_GAME
 
+    # Read the keyboard input.
+    #   If no/undefined keyboard input, $v0 == 0, $v1 == 0
+    #   If we get keyboard input:
+    #   Case 1: Doodle movement (j or k key)
+    #           $v0 == 1,
+    #           $v1 == -1 for (j) move left, 1 for (k) move right
+    #
+    #   TODO: Add more values as we get to MS4+
+    #   Case 2: Restart Game (s key)
+    FUNCTION_READ_KEYBOARD_INPUT:
+        lw $t0, keyPress
+        lw $t0, 0($t0)
+        beq $t0, 1, KEYBOARD_INPUT
+
+        # No input
+        j UNDEFINED_KEY_PRESS
+
+        KEYBOARD_INPUT:
+            lw $t1, keyValue    # value of the key that was pressed.
+            lw $t1, 0($t1)
+            # j = 0x6a
+            # k = 0x6b
+            beq $t1, 0x6a, HANDLE_J
+            beq $t1, 0x6b, HANDLE_K
+            j UNDEFINED_KEY_PRESS
+
+            HANDLE_J:
+                li $v0, 1           # Horizontal movement, $v0 = 1
+                li $v1, -1
+                jr $ra
+
+            HANDLE_K:
+                li $v0, 1           # Horizontal movement, $v0 = 1
+                li $v1, 1
+                jr $ra
+
+            # Essentially the same as not pressing a key at all, we don't care for it.
+            UNDEFINED_KEY_PRESS:
+                li $v0, 0
+                li $v1, 0
+                jr $ra
+
     # Draw the doodle starting from the bottom left block
     # We have to consider if the doodle is wrapping around the edge of the screen.
     #       A simple way to determine if a block is in the right most column is checking if:
@@ -277,12 +321,15 @@
             jr $ra
 
     # TODO: Update the doodle's horizontal position
-    # We take in an argument (+/- 1)
+    # We take in 2 arguments, $a0 == 0 means don't update, $a0 == 1 means update.
+    # In either case, we read a value off the stack (+/- 1 if updating, 0 otherwise)
     #   If arg = -1, we move left, if arg = +1, we move right.
     FUNCTION_UPDATE_DOODLE:
         lw $t0, 0($sp)      # Get the direction off the stack
         addi $sp, $sp, 4
+        bne $a0, 1, END_UPDATE_DOODLE  # $a0 != 1 means we don't update
 
+        # Update the doodle
         lw $t1, doodle_origin
         # set up for bounds check
         addi $t2, $zero, 32
@@ -311,7 +358,7 @@
                addi $t1, $t1, 124
                la $t2, doodle_origin
                sw $t1, 0($t2)
-               j END_DOODLE_UPDATE
+               j END_UPDATE_DOODLE
 
         MOVE_RIGHT:
             # We have to check to make sure the doodle isn't on the right most edge of the screen.
@@ -325,7 +372,7 @@
                addi $t1, $t1, -124
                la $t2, doodle_origin
                sw $t1, 0($t2)
-               j END_DOODLE_UPDATE
+               j END_UPDATE_DOODLE
 
         NORMAL_MOVEMENT:
             # General case for movement
@@ -428,6 +475,14 @@
             # TODO: MS2 - We may want to check for keyboard movement here.
             #       Reason: We've just moved the platforms down a row and are going to redraw the doodle
             #               anyways, so we might as well check to see if the player wants to move.
+            # TODO: testing MS2
+
+            jal FUNCTION_READ_KEYBOARD_INPUT
+            add $a0, $zero, $v0
+            add $t1, $zero, $v1
+            addi $sp, $sp, -4
+            sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
+            jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
 
             # TODO: This removes the missing legs glitch. Is there a better way to handle it?
             # The doodle may have gone through a platform, and since we redraw platforms here,
@@ -580,7 +635,7 @@
             add $t0, $t0, $t1       # $t0 is now the leftmost block of the platform
 
             lw $t4, doodle_origin
-            addi $t4, $t4, 128      # This way we compare the doodle's horiztonal position against the platform on the same row.
+            addi $t4, $t4, 128      # This way we compare the doodle's oriztonal position against the platform on the same row.
             addi $t1, $t4, 8        # $t1 = doodle's right leg offset
             addi $t2, $t0, 28       # $t2 = right edge of platform
 
@@ -651,6 +706,14 @@
 
             # TODO: MS2 - We may want to check for keyboard movement here.
             #       Reason: We've just erased the doodle and we're going to reposition it anyways.
+            # TODO: testing MS2
+            jal FUNCTION_READ_KEYBOARD_INPUT
+            add $a0, $zero, $v0
+            add $t1, $zero, $v1
+            addi $sp, $sp, -4
+            sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
+            jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
+
             # We need to send our friend the doodle down 1 row.
             la $t2, doodle_origin
             lw $t1, 0($t2)
@@ -713,6 +776,14 @@
 
             # TODO: MS2 - We may want to check for keyboard movement here.
             #       Reason: We've just erased the doodle and we're going to reposition it anyways.
+            # TODO: testing MS2
+            jal FUNCTION_READ_KEYBOARD_INPUT
+            add $a0, $zero, $v0
+            add $t1, $zero, $v1
+            addi $sp, $sp, -4
+            sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
+            jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
+
             # We need to send our friend the doodle up 1 row.
             la $t2, doodle_origin
             lw $t1, 0($t2)
