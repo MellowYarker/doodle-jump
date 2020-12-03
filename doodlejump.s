@@ -114,8 +114,13 @@
         add $s5, $zero, $zero
         add $s7, $zero, $zero
 
-        # Start the game.
-        j GAME_LOOP
+        # Wait for the signal "s" to start the game.
+        IDLE:
+            jal FUNCTION_READ_KEYBOARD_INPUT
+            add $t0, $zero, $v0
+            li $t1, 2
+            beq $t0, $t1, GAME_LOOP
+            j IDLE
 
     # In SET_PLATFORMS we determine the horizontal position of each platform.
     SET_PLATFORMS:
@@ -196,6 +201,7 @@
             # k = 0x6b
             beq $t1, 0x6a, HANDLE_J
             beq $t1, 0x6b, HANDLE_K
+            beq $t1, 0x73, HANDLE_S
             j UNDEFINED_KEY_PRESS
 
             HANDLE_J:
@@ -206,6 +212,11 @@
             HANDLE_K:
                 li $v0, 1           # Horizontal movement, $v0 = 1
                 li $v1, 1
+                jr $ra
+
+            HANDLE_S:
+                li $v0, 2           # Start/Restart game.
+                li $v1, 0
                 jr $ra
 
             # Essentially the same as not pressing a key at all, we don't care for it.
