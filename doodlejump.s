@@ -634,7 +634,7 @@
             add $t0, $t0, $t1       # $t0 is now the leftmost block of the platform
 
             lw $t4, doodle_origin
-            addi $t4, $t4, 128      # This way we compare the doodle's oriztonal position against the platform on the same row.
+            addi $t4, $t4, 128      # This way we compare the doodle's horiztonal position against the platform on the same row.
             addi $t1, $t4, 8        # $t1 = doodle's right leg offset
             addi $t2, $t0, 28       # $t2 = right edge of platform
 
