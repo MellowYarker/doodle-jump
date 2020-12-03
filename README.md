@@ -14,6 +14,7 @@ I will update this page as is necessary to reflect the state of the code.
 -   Allow the doodle to move through the sides of the screen.
 - [x] Milestone 3
 -   Randomize the platform locations.
+-   Start game when player presses *s* key.
 -   End the game when the doodle falls into an invalid area.
 - [ ] Milestone 4
 - [ ] Milestone 5
