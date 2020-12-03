@@ -10,9 +10,7 @@ I will update this page as is necessary to reflect the state of the code.
 -   Make the doodle jump and fall.
 -   Redraw the map when the doodle jumps to the maximum height.
 - [x] Milestone 2
--   Handle keyboard input so when the user presses:
--       *j* => move left
--       *k* => move right
+-   Handle keyboard input so when the user presses: (*j* => move left) | (*k* => move right)
 -   Allow the doodle to move through the sides of the screen.
 - [ ] Milestone 3
 - [ ] Milestone 4
