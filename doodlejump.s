@@ -107,39 +107,39 @@
 
     # In SET_PLATFORMS we determine the horizontal position of each platform.
     SET_PLATFORMS:
-        # 1. set the left bound of each platform
-        #       TODO: will need bounds checking later.
-        # left most is column 12 (default for testing)
-
-        # want column index 12*4 = 48, rows 31, 21, and 11
         la $t9, platform_arr    # our array of platform origins
+        lw $s1 num_platforms
+        li $t2, 0               # current platform
 
-        # bottom platform
-        add $t0, $zero, $zero   # current index i in platform_arr
-        add $t1, $t9, $t0       # $t1 = platform_arr[i]
-        addi $t2, $zero, 48     # column_index = column * 4
-        sw $t2, 0($t1)          # platform_arr[i] = column_index
-        addi $t0, $t0, 4        # increment our index to the next word
+        GENERATE_STARTING_PLATFORMS:
+            beq $s1, $t2, DRAW_STARTING_PLATFORMS
 
-        # middle platform
-        add $t1, $t9, $t0       # $t1 = platform_arr[i]
-        sw $t2, 0($t1)          # platform_arr[i] = column_index
-        addi $t0, $t0, 4        # increment our index to the next word
+            # Generate this platform
+            li $t3, 4
+            mult $t2, $t3
+            mflo $t3            # current offset in platform_arr
 
-        # top platform
-        add $t1, $t9, $t0       # $t1 = platform_arr[i]
-        sw $t2, 0($t1)          # platform_arr[i] = column_index
+            add $t3, $t3, $t9   # platform_arr[$t2]
 
-        # put the platform colour on the stack before drawing.
-        lw $t8, platform_colour
-        addi $sp, $sp, -4
-        sw $t8, 0($sp)
+            lw $a0, platform_width
+            jal FUNCTION_GENERATE_RANDOM_PLATFORM
+            add $t0, $zero, $v0 # column * 4
+            sw $t0, 0($t3)      # platform_arr[$t2] = $t0
 
-        jal FUNCTION_DRAW_PLATFORM_LOOP
+            add $t2, $t2, 1     # increment index
+            j GENERATE_STARTING_PLATFORMS
 
-        # set $s5 to 1 to indicate we have drawn the starting platforms.
-        addi $s5, $zero, 1
-        j SETUP_GAME
+        DRAW_STARTING_PLATFORMS:
+            # put the platform colour on the stack before drawing.
+            lw $t8, platform_colour
+            addi $sp, $sp, -4
+            sw $t8, 0($sp)
+
+            jal FUNCTION_DRAW_PLATFORM_LOOP
+
+            # set $s5 to 1 to indicate we have drawn the starting platforms.
+            addi $s5, $zero, 1
+            j SETUP_GAME
 
     # In SET_DOODLE, we want to initiate the doodle above the bottom platform.
     # Since the platforms have been validated, we don't need to check any bounds.
@@ -445,6 +445,27 @@
             COMPLETE_PLATFORM:
                 jr $ra
 
+
+    # Generate a random platform.
+    # Arg: $a0 = width of this platform
+    FUNCTION_GENERATE_RANDOM_PLATFORM:
+        add $t0, $zero, $a0      # $t0 = width of this platform.
+        li $t1, 30
+        sub $t1, $t1, $t0
+
+        # random(2, 31 - platform width)
+        li $a0, 0
+        add $a1, $zero, $t1
+        li $v0, 42
+        syscall
+
+        addi $t0, $a0, 2    # Gives range [2, 31 - platform width]
+        li $t1, 4
+        mult $t0, $t1
+        mflo $t0            # $t0 is the offset of the new platform column.
+        add $v0, $zero, $t0
+        jr $ra
+
     # the doodle has hit max height and so we have to move the platforms down.
     UPDATE_PLATFORMS:
         add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
@@ -551,7 +572,10 @@
 
                 # TODO: MILESTONE 3 we need to generate a random column position here.
                 # For now, just set it to the middle.
-                addi $t0, $zero, 48 # 48 = 12*4 = 12th column.
+                lw $a0, platform_width
+                jal FUNCTION_GENERATE_RANDOM_PLATFORM
+                add $t0, $zero, $v0
+                #addi $t0, $zero, 48 # 48 = 12*4 = 12th column.
                 sw $t0, 8($t9)      # platform_arr[2] = 48
                 j DRAW_NEW_PLATFORMS
 
