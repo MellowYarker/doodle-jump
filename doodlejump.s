@@ -64,7 +64,10 @@
         # ~~platforms~~
         add $s5, $zero, $zero   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
         add $s7, $0, $0         # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
-        j DRAW_BACKGROUND
+
+        lw $a0, background      # paint the background white.
+        jal FUNCTION_DRAW_BACKGROUND
+        j SETUP_GAME
 
     # If we ever enter the game loop, just start falling.
     GAME_LOOP:
@@ -74,19 +77,28 @@
         # and redraw the map as necessary.
         j FALL
 
-    DRAW_BACKGROUND:
-        # first, we want to make sure we're not at the last block
-        addi $t2, $s0, 4096 # based address + 4096
-        # if we've drawn the background, start other assets.
-        beq $s1, $t2, SETUP_GAME
+    # argument: $a0 = colour
+    FUNCTION_DRAW_BACKGROUND:
+        add $t0, $zero, $a0
+        li $t1, 0
+        li $t2, 1024
+        DRAW_BACKGROUND_LOOP:
+            # first, we want to make sure we're not at the last block
+            beq $t1, $t2, FINISH_BACKGROUND
 
-        # otherwise, make the block white and increment!
-        lw $t0, background
-        sw $t0, 0($s1)
-        addi $s1, $s1, 4
+            # Colour the block
+            li $t3, 4
+            mult $t1, $t3
+            mflo $t3
+            add $t3, $t3, $s0
 
-        # go to the top of the loop.
-        j DRAW_BACKGROUND
+            sw $t0, 0($t3)
+            addi $t1, $t1, 1    # increment our counter.
+
+            # go to the top of the loop.
+            j DRAW_BACKGROUND_LOOP
+        FINISH_BACKGROUND:
+            jr $ra
 
     SETUP_GAME:
         add $s1, $zero, $s0 # current block
@@ -870,6 +882,9 @@ GAME_END:
     addi $sp, $sp, -4
     sw $t0, ($sp)
     jal FUNCTION_DRAW_DOODLE
+
+    li $a0, 0x000000            # make the screen black
+    jal FUNCTION_DRAW_BACKGROUND
 
     li $v0, 10 		# terminate the program gracefully
     syscall
