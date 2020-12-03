@@ -12,6 +12,8 @@ I will update this page as is necessary to reflect the state of the code.
 - [x] Milestone 2
 -   Handle keyboard input so when the user presses: (*j* => move left) | (*k* => move right)
 -   Allow the doodle to move through the sides of the screen.
-- [ ] Milestone 3
+- [x] Milestone 3
+-   Randomize the platform locations.
+-   End the game when the doodle falls into an invalid area.
 - [ ] Milestone 4
 - [ ] Milestone 5
