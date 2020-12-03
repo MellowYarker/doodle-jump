@@ -320,10 +320,8 @@
         END_DOODLE_DRAWING:
             jr $ra
 
-    # TODO: Update the doodle's horizontal position
-    # We take in 2 arguments, $a0 == 0 means don't update, $a0 == 1 means update.
-    # In either case, we read a value off the stack (+/- 1 if updating, 0 otherwise)
-    #   If arg = -1, we move left, if arg = +1, we move right.
+    # We take in 1 argument, if $a0 == 1 we update.
+    # Next, we read a value off the stack -1 means go left, +1 means move right.
     FUNCTION_UPDATE_DOODLE:
         lw $t0, 0($sp)      # Get the direction off the stack
         addi $sp, $sp, 4
@@ -391,13 +389,13 @@
         # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
         # from platform_arr and draw it using the colour on the stack.
 
-        lw $t7, 0($sp)      # get the colour off the stack
-        addi $sp, $sp, 4    # reset the stack pointer
+        lw $t7, 0($sp)              # get the colour off the stack
+        addi $sp, $sp, 4            # reset the stack pointer
 
         # Throughout FUNCTION_DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
         add $s2, $zero, $zero
-        la $t8, row_arr         # our array of row indexes
-        la $t9, platform_arr    # our array of platform origins
+        la $t8, row_arr             # our array of row indexes
+        la $t9, platform_arr        # our array of platform origins
 
         GET_PLATFORM:
             lw $t1, num_platforms   # loop condition
@@ -416,27 +414,27 @@
             mflo $t3                # required for loop condition, 4*platform width
 
             # 1. get the row_index from row_arr[i]
-            add $t4, $t8, $s2   # addr(row_arr[i])
+            add $t4, $t8, $s2       # addr(row_arr[i])
             lw $t5, 0($t4)
 
             # 2. add the row index to the base of the display, positions us in the display.
-            add $t5, $t5, $s0   # $t5 holds row_arr[i]'s actual position in the display
+            add $t5, $t5, $s0       # $t5 holds row_arr[i]'s actual position in the display
 
             # 3. get the column index from platform_arr[i]
-            add $t4, $t9, $s2   # addr(platform_arr[i])
-            lw $s6, 0($t4)      # $s6 = platform_arr[i]
+            add $t4, $t9, $s2       # addr(platform_arr[i])
+            lw $t6, 0($t4)          # $t6 = platform_arr[i]
 
             # 4. add the column index to the position in the display to get to the current block
-            add $s6, $s6, $t5   # $s6 = platform_arr[i] + row in display, i.e the leftmost block of this platform. This is the curent block.
+            add $t6, $t6, $t5       # $t6 = platform_arr[i] + row in display, i.e the leftmost block of this platform. This is the curent block.
 
             DRAW_CURRENT_PLATFORM:
                 # while i < platform_width, draw this platform
                 beq $t2, $t3, NEXT_PLATFORM
-                sw $t7, 0($s6)      # draw the block the chosen colour
+                sw $t7, 0($t6)      # draw the block the chosen colour
 
                 # increment the block and go to the loop condition
                 addi $t2, $t2, 4
-                addi $s6, $s6, 4    # Draw this block next.
+                addi $t6, $t6, 4    # Draw this block next.
                 j DRAW_CURRENT_PLATFORM
 
             NEXT_PLATFORM:
@@ -451,7 +449,7 @@
     UPDATE_PLATFORMS:
         add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
 
-        # TODO: in between each platform decrement, we have to check for doodle movement.
+        # We also check if the doodle has moved while moving the map.
         MOVE_PLATFORMS:
             # sleep
             li $v0 32
@@ -471,12 +469,15 @@
 
             jal FUNCTION_DRAW_PLATFORM_LOOP
 
+            # We might be moving the doodle, and since we're redrawing the
+            # platforms, if the doodle passes through a platform it's body might
+            # get overwritten. May as well erase and redraw it.
+            lw $t0, background
+            addi $sp, $sp, -4
+            sw $t0, ($sp)
+            jal FUNCTION_DRAW_DOODLE
 
-            # TODO: MS2 - We may want to check for keyboard movement here.
-            #       Reason: We've just moved the platforms down a row and are going to redraw the doodle
-            #               anyways, so we might as well check to see if the player wants to move.
-            # TODO: testing MS2
-
+            # Check for keyboard input
             jal FUNCTION_READ_KEYBOARD_INPUT
             add $a0, $zero, $v0
             add $t1, $zero, $v1
@@ -484,9 +485,7 @@
             sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
             jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
 
-            # TODO: This removes the missing legs glitch. Is there a better way to handle it?
-            # The doodle may have gone through a platform, and since we redraw platforms here,
-            # we may have cut off part of the doodle's body, so we redraw here.
+            # Redraw the doodle.
             lw $t1, doodle_colour
             addi $sp, $sp, -4
             sw $t1, ($sp)
@@ -550,7 +549,7 @@
                 sw $t0, 0($t9)      # platform_arr[0] = platform_arr[1]
                 sw $t1, 4($t9)      # platform_arr[1] = platform_arr[2]
 
-                # TODO: MILESTONE 2 we need to generate a random column position here.
+                # TODO: MILESTONE 3 we need to generate a random column position here.
                 # For now, just set it to the middle.
                 addi $t0, $zero, 48 # 48 = 12*4 = 12th column.
                 sw $t0, 8($t9)      # platform_arr[2] = 48
@@ -683,14 +682,21 @@
         j HANDLE_FALL
 
         DECREMENT_CANDIDATE_PLATFORM:
+            # if this is the bottom platform, get ready to end the game.
             lw $t0, candidate_platform
-            add $t1, $zero, $zero   # unnecessary, but just for safe keeping.
-            beq $t0, $t1, GAME_END
+            add $t1, $zero, $zero   # unnecessary, but just to be safe.
+            beq $t0, $t1, PREPARE_END_GAME
 
             # Otherwise, just decrement the candidate_platform
             addi $t0, $t0, -1
             la $t1, candidate_platform
             sw $t0, 0($t1)
+            j HANDLE_FALL
+
+        PREPARE_END_GAME:
+            addi $s5, $zero, 5           # $s5 == -1 then we will end the game after the next drawing.
+            j HANDLE_FALL
+
 
         HANDLE_FALL:
             # add a small sleep.
@@ -704,9 +710,7 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
-            # TODO: MS2 - We may want to check for keyboard movement here.
-            #       Reason: We've just erased the doodle and we're going to reposition it anyways.
-            # TODO: testing MS2
+            # Check if the player wants to move the doodle.
             jal FUNCTION_READ_KEYBOARD_INPUT
             add $a0, $zero, $v0
             add $t1, $zero, $v1
@@ -725,6 +729,9 @@
             addi $sp, $sp, -4
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
+
+            addi $t0, $zero, 5
+            beq $s5, $t0, GAME_END  # If we fell past the last platform, end the game.
 
             # Redraw platform
             # TODO: When we move the map (doodle hit max height), the doodle may be "inside"
@@ -774,9 +781,7 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
-            # TODO: MS2 - We may want to check for keyboard movement here.
-            #       Reason: We've just erased the doodle and we're going to reposition it anyways.
-            # TODO: testing MS2
+            # Check if the player wants to move the doodle
             jal FUNCTION_READ_KEYBOARD_INPUT
             add $a0, $zero, $v0
             add $t1, $zero, $v1
@@ -800,7 +805,7 @@
             add $t0, $t0, $t8
             lw $t3, 0($t0)          # $t3 = row_arr[candidate_platform + 1]
 
-            addi $t3, $t3, -4        # end of row directly above the platform above our current candidate_platform
+            addi $t3, $t3, -4       # end of row directly above the platform above our current candidate_platform
 
             sub $t0, $t3, $t1
             addi $t0, $t0, 1
@@ -832,5 +837,15 @@
                 j BOUNCE_LOOP
 
 GAME_END:
+    # Show the doodle at the bottom of the display.
+    li $v0, 32
+    lw $a0, jump_sleep_time
+    syscall
+    # Erase the doodle cuz it fell off the map
+    lw $t0, background
+    addi $sp, $sp, -4
+    sw $t0, ($sp)
+    jal FUNCTION_DRAW_DOODLE
+
     li $v0, 10 		# terminate the program gracefully
     syscall
