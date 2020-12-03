@@ -124,7 +124,7 @@
             lw $a0, platform_width
             jal FUNCTION_GENERATE_RANDOM_PLATFORM
             add $t0, $zero, $v0 # column * 4
-            sw $t0, 0($t3)      # platform_arr[2] = 48
+            sw $t0, 0($t3)      # platform_arr[$t2] = $t0
 
             add $t2, $t2, 1     # increment index
             j GENERATE_STARTING_PLATFORMS
