@@ -55,6 +55,7 @@
     bounce_height:      .word 14                # Doodle can jump up 14 rows.
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
+    score:              .word 0                 # Game score.
 .text
     MAIN:
         # setup
@@ -491,6 +492,12 @@
 
     # the doodle has hit max height and so we have to move the platforms down.
     UPDATE_PLATFORMS:
+        # Update the game score.
+        la $t0, score
+        lw $t1, 0($t0)
+        addi $t1, $t1, 1
+        sw $t1, 0($t0)
+
         add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
 
         # We also check if the doodle has moved while moving the map.
@@ -896,6 +903,11 @@ GAME_END:
 
     li $a0, 0x000000            # make the screen black
     jal FUNCTION_DRAW_BACKGROUND
+
+    # Print the score
+    li $v0 1
+    lw $a0, score
+    syscall
 
     li $v0, 10 		# terminate the program gracefully
     syscall
