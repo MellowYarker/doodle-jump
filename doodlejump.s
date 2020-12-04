@@ -56,15 +56,15 @@
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
     score:              .word 0                 # Game score.
+
 .text
     MAIN:
         # setup
-        lw $s0, displayAddress 	# $s0 stores the base address for display
-        add $s1, $zero, $s0     # $s1 stores the location of the current block
+        lw $s0, displayAddress 	# $s0 stores the base address for display, we never change it.
 
-        # ~~platforms~~
-        add $s5, $zero, $zero   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
-        add $s7, $0, $0         # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
+        # flags that indicate whether we've finished setting up or not.
+        li $s5, 0   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
+        li $s7, 0   # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
 
         lw $a0, background      # paint the background white.
         jal FUNCTION_DRAW_BACKGROUND
@@ -102,9 +102,8 @@
             jr $ra
 
     SETUP_GAME:
-        add $s1, $zero, $s0 # current block
         # We always have 3 platforms visible.
-        add $t2 $zero, $zero
+        li $t2, 0
 
         # if $s5 is 0, draw the platforms, otherwise skip
         beq $s5, $t2, SET_PLATFORMS
@@ -112,8 +111,8 @@
         beq $s7, $t2, SET_DOODLE
 
         # We don't need these values anymore, we will never enter the setup section again.
-        add $s5, $zero, $zero
-        add $s7, $zero, $zero
+        li $s5, 0
+        li $s7, 0
 
         # Wait for the signal "s" to start the game.
         IDLE:
@@ -149,14 +148,14 @@
 
         DRAW_STARTING_PLATFORMS:
             # put the platform colour on the stack before drawing.
-            lw $t8, platform_colour
+            lw $t7, platform_colour
             addi $sp, $sp, -4
-            sw $t8, 0($sp)
+            sw $t7, 0($sp)
 
             jal FUNCTION_DRAW_PLATFORM_LOOP
 
             # set $s5 to 1 to indicate we have drawn the starting platforms.
-            addi $s5, $zero, 1
+            li $s5, 1
             j SETUP_GAME
 
     # In SET_DOODLE, we want to initiate the doodle above the bottom platform.
@@ -175,18 +174,22 @@
         addi $sp, $sp, -4
         sw $t2, 0($sp)
         jal FUNCTION_DRAW_DOODLE
-        addi $s7, $zero, 1      # $s7 = 1, so we have finished drawing the initial doodle.
+        li $s7, 1      # $s7 = 1, so we have finished drawing the initial doodle.
         j SETUP_GAME
 
     # Read the keyboard input.
     #   If no/undefined keyboard input, $v0 == 0, $v1 == 0
     #   If we get keyboard input:
+    #
     #   Case 1: Doodle movement (j or k key)
     #           $v0 == 1,
     #           $v1 == -1 for (j) move left, 1 for (k) move right
+
+    #   Case 2: Restart Game (s key)
+    #           $v0 == 2
+    #           $v1 == 0
     #
     #   TODO: Add more values as we get to MS4+
-    #   Case 2: Restart Game (s key)
     FUNCTION_READ_KEYBOARD_INPUT:
         lw $t0, keyPress
         lw $t0, 0($t0)
@@ -196,10 +199,11 @@
         j UNDEFINED_KEY_PRESS
 
         KEYBOARD_INPUT:
-            lw $t1, keyValue    # value of the key that was pressed.
-            lw $t1, 0($t1)
+            lw $t1, keyValue    # location of key value
+            lw $t1, 0($t1)      # value of the key that was pressed
             # j = 0x6a
             # k = 0x6b
+            # s = 0x73
             beq $t1, 0x6a, HANDLE_J
             beq $t1, 0x6b, HANDLE_K
             beq $t1, 0x73, HANDLE_S
@@ -258,13 +262,13 @@
 
         # Now we perform some bounds checks.
         # First, check if the left side of the doodle is on the edge.
-        addi $t3, $zero, 32
-        addi $t4, $zero, 4
+        li $t3, 32
+        li $t4, 4
         div $t1, $t4
         mflo $t4                # doodle_origin / 4 = K
         div $t4, $t3
         mfhi $t2                # K (mod 32)
-        addi $t3, $zero, 31
+        li $t3, 31
 
         # Branch if K === 31 (mod 32)
         beq $t2, $t3, LEFT_ON_EDGE
@@ -279,15 +283,15 @@
 
         # Check if the middle of the doodle is on the edge.
         addi $t2, $t1, 4
-        addi $t3, $zero, 32
+        li $t3, 32
 
-        addi $t4, $zero, 4
+        li $t4, 4
         div $t2, $t4
         mflo $t4                # (doodle_origin + 4) / 4 = K
 
         div $t4, $t3
         mfhi $t2                # K (mod) 32
-        addi $t3, $zero, 31
+        li $t3, 31
 
         # Branch if K === 31 (mod 32)
         beq $t2, $t3, MIDDLE_ON_EDGE
@@ -345,34 +349,35 @@
             jr $ra
 
     # We take in 1 argument, if $a0 == 1 we update.
-    # Next, we read a value off the stack -1 means go left, +1 means move right.
+    # We also read a value off the stack -1 means go left, +1 means move right.
+    #   The value doesn't matter if $a0 != 1, it's junk but we pop it anyways.
     FUNCTION_UPDATE_DOODLE:
-        lw $t0, 0($sp)      # Get the direction off the stack
+        lw $t0, 0($sp)                  # Get the direction off the stack
         addi $sp, $sp, 4
-        bne $a0, 1, END_UPDATE_DOODLE  # $a0 != 1 means we don't update
+        bne $a0, 1, END_UPDATE_DOODLE   # $a0 != 1 means we don't update
 
         # Update the doodle
         lw $t1, doodle_origin
         # set up for bounds check
-        addi $t2, $zero, 32
+        li $t2, 32
 
-        addi $t4, $zero, 4
+        li $t4, 4
         div $t2, $t4
-        mflo $t4                # (doodle_origin) / 4 = K
+        mflo $t4                        # (doodle_origin) / 4 = K
 
         div $t4, $t3
-        mfhi $t2                # K (mod) 32
+        mfhi $t2                        # K (mod) 32
 
-        li $t5, -1
         # First, figure out if we're going right or left.
+        li $t5, -1
         beq $t0, $t5, MOVE_LEFT
         j MOVE_RIGHT
 
         MOVE_LEFT:
             # Now we have to check to make sure the doodle isn't on the left edge of the screen.
             # doodle_origin/4 % 32 == 0
-            add $t3, $zero, $zero
-            beq $t2, $t3, LEFT_EDGE # doodle's on the left edge
+            li $t3, 0
+            beq $t2, $t3, LEFT_EDGE     # doodle's on the left edge
             j NORMAL_MOVEMENT
 
             # Move the doodle's origin to the right side of the screen.
@@ -385,7 +390,7 @@
         MOVE_RIGHT:
             # We have to check to make sure the doodle isn't on the right most edge of the screen.
             # doodle_origin / 4 % 32 == 31
-            addi $t3, $zero, 31
+            li $t3, 31
             beq $t2, $t3, RIGHT_EDGE
             j NORMAL_MOVEMENT
 
@@ -398,32 +403,31 @@
 
         NORMAL_MOVEMENT:
             # General case for movement
-            addi $t2, $zero, 4
+            li $t2, 4
             mult $t0, $t2
-            mflo $t0                # Offset (+/-4)
+            mflo $t0                    # Offset (+/-4)
             la $t2, doodle_origin
-            add $t1, $t1, $t0       # doodle_origin += offset
+            add $t1, $t1, $t0           # doodle_origin += offset
             sw $t1, 0($t2)
             j END_UPDATE_DOODLE
 
         END_UPDATE_DOODLE:
             jr $ra
 
+    # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
+    # from platform_arr and draw it using the colour on the stack.
     FUNCTION_DRAW_PLATFORM_LOOP:
-        # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
-        # from platform_arr and draw it using the colour on the stack.
-
         lw $t7, 0($sp)              # get the colour off the stack
         addi $sp, $sp, 4            # reset the stack pointer
 
         # Throughout FUNCTION_DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
-        add $s2, $zero, $zero
+        li $s2, 0
         la $t8, row_arr             # our array of row indexes
         la $t9, platform_arr        # our array of platform origins
 
         GET_PLATFORM:
             lw $t1, num_platforms   # loop condition
-            addi $t2, $zero, 4
+            li $t2, 4
             mult $t1, $t2
             mflo $t1                # $t1 = num_platforms * 4
 
@@ -431,9 +435,9 @@
             beq $s2, $t1, COMPLETE_PLATFORM
 
             # Draw the current platform from our array.
-            add $t2, $zero, $zero   # current block being drawn.
+            li $t2, 0   # current block being drawn.
             lw $t3, platform_width
-            addi $t4, $zero, 4
+            li $t4, 4
             mult $t3, $t4
             mflo $t3                # required for loop condition, 4*platform width
 
@@ -462,7 +466,7 @@
                 j DRAW_CURRENT_PLATFORM
 
             NEXT_PLATFORM:
-                # increment our index by 4
+                # increment our offset by 4
                 addi $s2, $s2, 4
                 j GET_PLATFORM
 
@@ -473,7 +477,7 @@
     # Generate a random platform.
     # Arg: $a0 = width of this platform
     FUNCTION_GENERATE_RANDOM_PLATFORM:
-        add $t0, $zero, $a0      # $t0 = width of this platform.
+        add $t0, $zero, $a0 # $t0 = width of this platform.
         li $t1, 30
         sub $t1, $t1, $t0
 
@@ -498,7 +502,7 @@
         addi $t1, $t1, 1
         sw $t1, 0($t0)
 
-        add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
+        li $s3, 0           # $s3 will be our loop counter, we loop 10x
 
         # We also check if the doodle has moved while moving the map.
         MOVE_PLATFORMS:
@@ -507,7 +511,7 @@
             lw $a0, platform_sleep
             syscall
 
-            addi $t0, $zero, 10
+            li $t0, 10
             beq $s3, $t0, COMPLETE_PLATFORM_UPDATE
 
             addi $s3, $s3, 1    # increment $s3 here since we're already passed the branch operation
@@ -543,7 +547,7 @@
             jal FUNCTION_DRAW_DOODLE
 
             # 2. Calculate the new positions
-            add $t0, $zero, $zero
+            li $t0, 0
             la $t8, row_arr
             la $t9, platform_arr
 
@@ -560,7 +564,7 @@
                 # while i < # platforms
                 beq $t0, $t1, CHECK_PLATFORM_OVERFLOW
 
-                add $t2, $zero, 4
+                li $t2, 4
                 mult $t0, $t2
                 mflo $t2            # current offset
 
@@ -578,7 +582,7 @@
             CHECK_PLATFORM_OVERFLOW:
                 # Check if row_arr[0] == 4096 == 32 (row) * 128
                 lw $t0, 0($t8)          # 0($t8) = row_arr[0]
-                addi $t2, $zero, 4096
+                li $t2, 4096
                 # if row_arr[0] != 4096, draw the new platforms
                 bne $t0, $t2, DRAW_NEW_PLATFORMS
 
@@ -591,7 +595,7 @@
                 # Note this next instruction.
                 # When the new platform comes in from the top, it will go to the 3rd row
                 # to maintain a distance of 10 rows from the middle platform.
-                addi $t0, $zero, 256
+                li $t0, 256
                 sw $t0, 8($t8)      # row_arr[2] = 256, aka the 3rd row (256 = 2 * 128).
 
                 # Now we need to move the values in the platform array.
@@ -600,12 +604,10 @@
                 sw $t0, 0($t9)      # platform_arr[0] = platform_arr[1]
                 sw $t1, 4($t9)      # platform_arr[1] = platform_arr[2]
 
-                # TODO: MILESTONE 3 we need to generate a random column position here.
-                # For now, just set it to the middle.
+                # Generate a new random platform
                 lw $a0, platform_width
                 jal FUNCTION_GENERATE_RANDOM_PLATFORM
                 add $t0, $zero, $v0
-                #addi $t0, $zero, 48 # 48 = 12*4 = 12th column.
                 sw $t0, 8($t9)      # platform_arr[2] = 48
                 j DRAW_NEW_PLATFORMS
 
@@ -636,7 +638,7 @@
         # First, we want to determine if we're 1 row above the platform
         la $t8, row_arr
         lw $t0, candidate_platform
-        addi $t1, $zero, 4
+        li $t1, 4
         mult $t0, $t1
         mflo $t0
         add $t4, $t0, $t8   # $t4 = addr(row_arr[candidate_platform])
@@ -677,7 +679,7 @@
             la $t8, row_arr
             la $t9, platform_arr
             lw $t0, candidate_platform
-            addi $t1, $zero, 4
+            li $t1, 4
             mult $t0, $t1
             mflo $t0
             add $t4, $t0, $t9       # $t4 = addr(platform_arr[candidate_platform])
@@ -725,20 +727,20 @@
     FALL:
         jal FUNCTION_COLLISION_DETECTION
         add $s4, $zero, $v0        # 1 if collision occured, 0 if no platform nearby, -1 if fell past platform.
-        addi $t1, $zero, 1
+        li $t1, 1
 
         beq $s4, $t1, JUMP
 
         # We're falling at this point, deal with it.
         # First, lets check if we fell past the platform, since it could mean game over.
-        addi $t1, $zero, -1
+        li $t1, -1
         beq $s4, $t1, DECREMENT_CANDIDATE_PLATFORM
         j HANDLE_FALL
 
         DECREMENT_CANDIDATE_PLATFORM:
             # if this is the bottom platform, get ready to end the game.
             lw $t0, candidate_platform
-            add $t1, $zero, $zero   # unnecessary, but just to be safe.
+            li $t1, 0           # unnecessary, but just to be safe.
             beq $t0, $t1, PREPARE_END_GAME
 
             # Otherwise, just decrement the candidate_platform
@@ -748,7 +750,7 @@
             j HANDLE_FALL
 
         PREPARE_END_GAME:
-            addi $s5, $zero, 5           # $s5 == -1 then we will end the game after the next drawing.
+            li $s5, 5           # $s5 == -1 then we will end the game after the next drawing.
             j HANDLE_FALL
 
 
@@ -784,7 +786,7 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
-            addi $t0, $zero, 5
+            li $t0, 5
             beq $s5, $t0, GAME_END  # If we fell past the last platform, end the game.
 
             # Redraw platform
@@ -801,7 +803,7 @@
             j FALL
 
     JUMP:
-        add $s1, $zero, $zero       # $s1 will be our counter that lets us know how many more times we have to move the doodle up
+        li $s1, 0                   # $s1 will be our counter that lets us know how many more times we have to move the doodle up
         la $t8, row_arr
 
         BOUNCE_LOOP:
@@ -852,7 +854,7 @@
             # Next, we need to look into updating the candidate_platform variable.
             lw $t0, candidate_platform
             # If we're 1 row above row_arr[candidate_platform + 1], we need to update candidate_platform
-            addi $t2, $zero, 4
+            li $t2, 4
             mult $t0, $t2
             mflo $t0
             addi $t0, $t0, 4
