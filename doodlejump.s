@@ -8,12 +8,12 @@
 # Bitmap Display Configuration:
 #   - Unit width in pixels: 8
 #   - Unit height in pixels: 8
-#   - Display width in pixels: 256
-#   - Display height in pixels: 256
+#   - Display width in pixels: 512
+#   - Display height in pixels: 512
 #   - Base Address for Display: 0x10008000 ($gp)
 #
 # Which milestone is reached in this submission?
-#   - Milestone 1/2/3/4/5 (choose the one the applies)
+#   - Milestone 4
 #
 # Which approved additional features have been implemented?
 #   1. (fill in the feature, if any)
@@ -26,33 +26,36 @@
 #
 #####################################################################
 .data
-    jump_sleep_time:    .word 100               # ms to sleep between drawing
-    platform_sleep:     .word 30
-    background:         .word 0xffffff          # Background colour of the display
-    doodle_colour:      .word 0x000fff
+    jump_sleep_time:    .word 80               # ms to sleep between drawing
+    platform_sleep:     .word 10
+    background:         .word 0xDAEAFC         # Background colour of the display
+    doodle_colour:      .word 0xF9C09F
     platform_colour:    .word 0x00ff00
 
     displayAddress:     .word 0x10008000
     keyPress:           .word 0xffff0000
     keyValue:           .word 0xffff0004
 
-    platform_width:     .word 8                 # platform width
+    platform_width:     .word 12                 # platform width
     num_platforms:      .word 3
+    platform_distance:  .word 20
 
+    ROW_WIDTH:          .word 252               # This is for a 512 x 512 display.
+    ROW_BELOW:          .word 256               # same column, one row below
     # Array of 3 platforms.
     #   - in both platform_arr and row_arr, the first entry is the bottom platform.
     #   - platform_arr stores the leftmost column index (col * 4, col in [0, 31-platform_width])
     #   - row_arr stores the row index (row*128, row in [0, 31])
     #       - we pick 128 because that's the index of the first block after the 1st row
     platform_arr:       .word 0:3
-    row_arr:            .word 3968,2688,1408    # Store the row_indexes of each platform. Add these to displayAddress.
+    row_arr:            .word 16128, 11008, 5888    # Store the row_indexes of each platform. Add these to displayAddress.
 
     # Doodle Character
     #   - We will only store the bottom left of the doodle, the rest can easily be calculated on the fly.
     #   - We will store it's offset as a value in [0, 4092], so we have to add it to the base of the display
     #     when drawing.
     doodle_origin:      .word 0                 # Storing [0, 4092] makes bounds/collision detection easier.
-    bounce_height:      .word 14                # Doodle can jump up 14 rows.
+    bounce_height:      .word 24                # Doodle can jump up 14 rows.
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
 .text
@@ -81,7 +84,7 @@
     FUNCTION_DRAW_BACKGROUND:
         add $t0, $zero, $a0
         li $t1, 0
-        li $t2, 1024
+        li $t2, 4096
         DRAW_BACKGROUND_LOOP:
             # first, we want to make sure we're not at the last block
             beq $t1, $t2, FINISH_BACKGROUND
@@ -148,9 +151,9 @@
 
         DRAW_STARTING_PLATFORMS:
             # put the platform colour on the stack before drawing.
-            lw $t8, platform_colour
+            lw $t2, platform_colour
             addi $sp, $sp, -4
-            sw $t8, 0($sp)
+            sw $t2, 0($sp)
 
             jal FUNCTION_DRAW_PLATFORM_LOOP
 
@@ -167,7 +170,7 @@
         la $t3, doodle_origin
 
         add $t0, $t0, $t1       # $t0 = offset of the 1st block of the bottom platform
-        addi $t0, $t0, -120     # -120 = -128 + 8 = 1 row above, 3 blocks to the right
+        addi $t0, $t0, -248     # -248 = -256 + 8 = 1 row above, 3 blocks to the right
         sw $t0, 0($t3)          # doodle_origin = 3rd block of bottom platform
 
         # move the doodle's colour onto the stack
@@ -228,21 +231,21 @@
     # Draw the doodle starting from the bottom left block
     # We have to consider if the doodle is wrapping around the edge of the screen.
     #       A simple way to determine if a block is in the right most column is checking if:
-    #           (OFFSET / 4) === 31 (mod 32).
+    #           (OFFSET / 4) === 63 (mod 64).
     #
     #       The reasoning for the equation is as follows.
     #           Suppose a, b, and C are given integers.
     #           Then C = a*x + b*y  has integer solutions x and y <==> gcd(a, b) | C.
-    #       In our case, C = OFFSET, a = 4, b = 128, as OFFSET = 4*col + 128*row.
-    #       Since gcd(4, 128) = 4, and we know 4 | OFFSET, we have:
-    #           C / 4 = x + 32y
-    #           K = x + 32y
+    #       In our case, C = OFFSET, a = 4, b = 256, as OFFSET = 4*col + 256*row.
+    #       Since gcd(4, 256) = 4, and we know 4 | OFFSET, we have:
+    #           C / 4 = x + 64y
+    #           K = x + 64y
     #
     #       Thus, rearranging the equation we see:
-    #           y = (K - x)/32
-    #       Then K === x (mod 32). Since we want to know if we're in the 31st column,
-    #       we let x = 31, which gives the equation:
-    #           K === 31 (mod 32), where K is C (the offset) divided by 4.
+    #           y = (K - x)/64
+    #       Then K === x (mod 64). Since we want to know if we're in the 63 column,
+    #       we let x = 63, which gives the equation:
+    #           K === 63 (mod 64), where K is C (the offset) divided by 4.
     FUNCTION_DRAW_DOODLE:
         lw $t0, 0($sp)          # $t0 = the colour we're using
         addi $sp, $sp, 4
@@ -251,26 +254,34 @@
 
         # Draw the left side of the doodle
         add $t2, $t1, $s0       # recall $s0 = displayAddress
-        addi $t3, $t2, -128
+        lw $t3, ROW_BELOW
+
+        sub $t3, $t2, $t3
         sw $t0, 0($t2)
         sw $t0, 0($t3)
 
         # Now we perform some bounds checks.
         # First, check if the left side of the doodle is on the edge.
-        addi $t3, $zero, 32
+        addi $t3, $zero, 64
         addi $t4, $zero, 4
         div $t1, $t4
         mflo $t4                # doodle_origin / 4 = K
         div $t4, $t3
-        mfhi $t2                # K (mod 32)
-        addi $t3, $zero, 31
+        mfhi $t2                # K (mod 64)
+        addi $t3, $zero, 63
 
-        # Branch if K === 31 (mod 32)
+        # Branch if K === 63 (mod 64)
         beq $t2, $t3, LEFT_ON_EDGE
 
         # It's safe to draw the middle of the doodle at this point.
-        addi $t2, $t1, -124     # middle piece
-        addi $t3, $t1, -252     # top piece
+        lw $t2, ROW_WIDTH
+        sub $t2, $t1, $t2       # middle piece
+
+        lw $t3, ROW_WIDTH
+        lw $t4, ROW_BELOW
+        add $t3, $t3, $t4
+
+        sub $t3, $t1, $t3       # top piece, one row above middle.
         add $t2, $t2, $s0
         add $t3, $t3, $s0
         sw $t0, 0($t2)
@@ -278,24 +289,28 @@
 
         # Check if the middle of the doodle is on the edge.
         addi $t2, $t1, 4
-        addi $t3, $zero, 32
+        addi $t3, $zero, 64
 
         addi $t4, $zero, 4
         div $t2, $t4
         mflo $t4                # (doodle_origin + 4) / 4 = K
 
         div $t4, $t3
-        mfhi $t2                # K (mod) 32
-        addi $t3, $zero, 31
+        mfhi $t2                # K (mod) 63
+        addi $t3, $zero, 63
 
-        # Branch if K === 31 (mod 32)
+        # Branch if K === 63 (mod 64)
         beq $t2, $t3, MIDDLE_ON_EDGE
 
         # At this point, we just complete a normal doodle drawing.
         addi $t2, $t1, 8        # bottom right
-        addi $t3, $t1, -120     # top right
+
+        lw $t3, ROW_BELOW
+        sub $t3, $t2, $t3       # top right
+
         add $t2, $t2, $s0
         add $t3, $t3, $s0
+
         sw $t0, 0($t2)
         sw $t0, 0($t3)
 
@@ -307,19 +322,26 @@
             # on the left side of the map
 
             # "right side" of doodle
-            addi $t2, $t1, -120         # First block of row
-            addi $t3, $t2, -128         # First block of row above
+            # Take doodle origin and send it to the left side
+            addi $t2, $t1, 8
+            lw $t3, ROW_BELOW
+            sub $t2, $t2, $t3           # bottom right
+
+            sub $t3, $t2, $t3           # top right
 
             # centre
-            addi $t4, $t1, -124
-            addi $t4, $t4, -128
-            addi $t5, $t4, -128         # 1 row above $t4
+            lw $t5, ROW_BELOW
+            addi $t4, $t1, 4
+            sub $t4, $t4, $t5
+            sub $t4, $t4, $t5           # middle block
+            sub $t5, $t4, $t5           # top block
 
             add $t2, $t2, $s0
             add $t3, $t3, $s0
             add $t4, $t4, $s0
             add $t5, $t5, $s0
 
+            # Draw each block
             sw $t0, 0($t2)
             sw $t0, 0($t3)
             sw $t0, 0($t4)
@@ -328,9 +350,10 @@
             j END_DOODLE_DRAWING
 
         MIDDLE_ON_EDGE:
-            # We have to draw the "right side" of the doodle on the left of the map.
-            addi $t2, $t1, -120         # doodle_origin + 4 - 124 = doodle_origin - 120
-            addi $t3, $t2, -128         # 1 row above
+            lw $t3, ROW_BELOW
+            addi $t2, $t1, 8
+            sub $t2, $t2, $t3           # bottom "right"
+            sub $t3, $t2, $t3           # top "right"
 
             add $t2, $t2, $s0
             add $t3, $t3, $s0
@@ -353,14 +376,14 @@
         # Update the doodle
         lw $t1, doodle_origin
         # set up for bounds check
-        addi $t2, $zero, 32
+        addi $t2, $zero, 64
 
         addi $t4, $zero, 4
         div $t2, $t4
         mflo $t4                # (doodle_origin) / 4 = K
 
         div $t4, $t3
-        mfhi $t2                # K (mod) 32
+        mfhi $t2                # K (mod) 64
 
         li $t5, -1
         # First, figure out if we're going right or left.
@@ -369,28 +392,32 @@
 
         MOVE_LEFT:
             # Now we have to check to make sure the doodle isn't on the left edge of the screen.
-            # doodle_origin/4 % 32 == 0
+            # doodle_origin/4 % 64 == 0
             add $t3, $zero, $zero
             beq $t2, $t3, LEFT_EDGE # doodle's on the left edge
             j NORMAL_MOVEMENT
 
             # Move the doodle's origin to the right side of the screen.
             LEFT_EDGE:
-               addi $t1, $t1, 124
+               lw $t2, ROW_WIDTH
+               add $t1, $t2, $t1
+
                la $t2, doodle_origin
                sw $t1, 0($t2)
                j END_UPDATE_DOODLE
 
         MOVE_RIGHT:
             # We have to check to make sure the doodle isn't on the right most edge of the screen.
-            # doodle_origin / 4 % 32 == 31
-            addi $t3, $zero, 31
+            # doodle_origin / 4 % 64 == 63
+            addi $t3, $zero, 63
             beq $t2, $t3, RIGHT_EDGE
             j NORMAL_MOVEMENT
 
             # Move the doodle's origin to the left side of the screen.
             RIGHT_EDGE:
-               addi $t1, $t1, -124
+               lw $t2, ROW_WIDTH
+               sub $t1, $t1, $t2
+
                la $t2, doodle_origin
                sw $t1, 0($t2)
                j END_UPDATE_DOODLE
@@ -473,16 +500,16 @@
     # Arg: $a0 = width of this platform
     FUNCTION_GENERATE_RANDOM_PLATFORM:
         add $t0, $zero, $a0      # $t0 = width of this platform.
-        li $t1, 30
+        li $t1, 61
         sub $t1, $t1, $t0
 
-        # random(2, 31 - platform width)
+        # random(2, 61 - platform width)
         li $a0, 0
         add $a1, $zero, $t1
         li $v0, 42
         syscall
 
-        addi $t0, $a0, 2    # Gives range [2, 31 - platform width]
+        addi $t0, $a0, 2    # Gives range [2, 63 - platform width]
         li $t1, 4
         mult $t0, $t1
         mflo $t0            # $t0 is the offset of the new platform column.
@@ -500,7 +527,7 @@
             lw $a0, platform_sleep
             syscall
 
-            addi $t0, $zero, 10
+            lw $t0, platform_distance
             beq $s3, $t0, COMPLETE_PLATFORM_UPDATE
 
             addi $s3, $s3, 1    # increment $s3 here since we're already passed the branch operation
@@ -544,7 +571,7 @@
             # First, we increase each platform's row by 1.
             # for i in range(len(arr)):
             #   arr[i] = arr[i] + 1
-            # if arr[0] == 32:      # if our bottom row is off the screen
+            # if arr[0] == 64:      # if our bottom row is off the screen
             #   arr[0] = arr[1]
             #   arr[1] = arr[2]
             #   arr[2] = 2          # i.e the top platform goes to the 3rd row from the top.
@@ -555,37 +582,57 @@
 
                 add $t2, $zero, 4
                 mult $t0, $t2
-                mflo $t2            # current offset
+                mflo $t2            # current offset (0, 4, 8, etc)
 
-                add $t3, $t8, $t2   # $t4 = addr(row_arr[i])
+                add $t3, $t8, $t2   # $t3 = addr(row_arr[i])
 
-                lw $t4, 0($t3)      # $t5 = row_arr[i]
-                addi $t4, $t4, 128  # $t5 += 1 row
+                lw $t4, 0($t3)      # $t4 = row_arr[i]
+                lw $t2, ROW_BELOW
+                add $t4, $t4, $t2   # $t4 += 1 row
+
                 sw $t4, 0($t3)      # row_arr[i] += 1 row
 
                 # increment and jump to loop condition
                 addi $t0, $t0, 1
                 j CALCULATE_NEW_PLATFORM_ROWS
 
+            # TODO: Generally speaking this needs to be less hardcoded.
+            #       We assume that there will only be 3 platforms on the display, we should
+            #       generalize this so that we can have n platforms each a distance y apart.
+
             # We want to see if the bottom platform has fallen off the map
             CHECK_PLATFORM_OVERFLOW:
-                # Check if row_arr[0] == 4096 == 32 (row) * 128
+                # TODO: Instead of hardcoding 16384, we should have:
+                #           - a display_width variable in memory
+                #           - a block_size variable in memory
+                #       Then we can computer rows = display_width / block_size
+                #       and our max loop val will be threshold = (4 * rows)^2.
+                #
+                # Check if row_arr[0] == 16384 == 64 (row) * 128
                 lw $t0, 0($t8)          # 0($t8) = row_arr[0]
-                addi $t2, $zero, 4096
-                # if row_arr[0] != 4096, draw the new platforms
+                addi $t2, $zero, 16384
+                # if row_arr[0] != 16384, draw the new platforms
                 bne $t0, $t2, DRAW_NEW_PLATFORMS
 
-                # row_arr[0] == 4096 so we have to move our values around
+                # row_arr[0] == 16384 so we have to move our values around
                 lw $t0, 4($t8)      # $t0 = row_arr[1]
                 lw $t1, 8($t8)      # $t1 = row_arr[2]
                 sw $t0, 0($t8)      # row_arr[0] = row_arr[1]
                 sw $t1, 4($t8)      # row_arr[1] = row_arr[2]
 
-                # Note this next instruction.
-                # When the new platform comes in from the top, it will go to the 3rd row
-                # to maintain a distance of 10 rows from the middle platform.
-                addi $t0, $zero, 256
-                sw $t0, 8($t8)      # row_arr[2] = 256, aka the 3rd row (256 = 2 * 128).
+                # TODO: generate a new platform using variables
+                #       I don't like depending on hard coded values.
+                #       They make it really hard to have more than 3 platforms, or have platforms
+                #       that are spaced by varying amounts. I think I can handle this in Milestone 5.
+                # We want to bring a new platform in from the top.
+                # This platform has to maintain the same distance from the middle platform as the bottom one.
+                # Since we've hardcoded the platform rows, the middle platform is in the 24th row, so
+                # the new platform has to go to the 4th row.
+                lw $t0, ROW_BELOW
+                li $t1, 4
+                mult $t0, $t1
+                mflo $t0
+                sw $t0, 8($t8)      # row_arr[2] = 4 * ROW_BELOW
 
                 # Now we need to move the values in the platform array.
                 lw $t0, 4($t9)      # $t0 = platform_arr[1]
@@ -593,13 +640,10 @@
                 sw $t0, 0($t9)      # platform_arr[0] = platform_arr[1]
                 sw $t1, 4($t9)      # platform_arr[1] = platform_arr[2]
 
-                # TODO: MILESTONE 3 we need to generate a random column position here.
-                # For now, just set it to the middle.
                 lw $a0, platform_width
                 jal FUNCTION_GENERATE_RANDOM_PLATFORM
                 add $t0, $zero, $v0
-                #addi $t0, $zero, 48 # 48 = 12*4 = 12th column.
-                sw $t0, 8($t9)      # platform_arr[2] = 48
+                sw $t0, 8($t9)
                 j DRAW_NEW_PLATFORMS
 
             DRAW_NEW_PLATFORMS:
@@ -617,6 +661,11 @@
             # after everything has finished
             j GAME_LOOP
 
+    # TODO: instead of hardcoding where the doodle starts and ends, lets store the doodle's
+    #       boundary in an array in memory. The first element is the left most valid block,
+    #       the second element is the right most valid block. This way we can update the doodle's
+    #       size and shape without worrying that the collision detection may break.
+    #
     # Collision detection algorithm.
     # Called only when falling.
     # We rely on the `candidate_platform` variable here.
@@ -635,7 +684,9 @@
         add $t4, $t0, $t8   # $t4 = addr(row_arr[candidate_platform])
         lw $t0, 0($t4)      # $t0 = row_arr[candidate_platform]
 
-        addi $t2, $t0, -128 # $t2 = leftmost block of 1 row above the platform
+        lw $t2, ROW_BELOW
+        sub $t2, $t0, $t2   # $t2 = leftmost block of 1 row above the platform
+
         addi $t3, $t0, -4   # $t3 = rightmost block of 1 row above the platform
 
         # if $t2 <= doodle <= $t3, the doodle is 1 row above the platform.
@@ -681,9 +732,19 @@
             add $t0, $t0, $t1       # $t0 is now the leftmost block of the platform
 
             lw $t4, doodle_origin
-            addi $t4, $t4, 128      # This way we compare the doodle's horiztonal position against the platform on the same row.
+
+            lw $t5, ROW_BELOW
+            add $t4, $t4, $t5       # This way we compare the doodle's horiztonal position against the platform on the same row.
+            # addi $t4, $t4, 512      # This way we compare the doodle's horiztonal position against the platform on the same row.
             addi $t1, $t4, 8        # $t1 = doodle's right leg offset
-            addi $t2, $t0, 28       # $t2 = right edge of platform
+
+            lw $t2, platform_width
+            li $t5, 4
+            mult $t2, $t5
+            mflo $t2
+            sub $t2, $t2, $t5
+
+            add $t2, $t0, $t2       # $t2 = right edge of platform
 
             # if $t0 <= $t1 (doodle's right leg) and
             # if $t4 (doodle's left leg) <= $t2 (right edge)
@@ -768,7 +829,8 @@
             # We need to send our friend the doodle down 1 row.
             la $t2, doodle_origin
             lw $t1, 0($t2)
-            addi $t1, $t1, 128      # doodle position - 1 row
+            lw $t3, ROW_BELOW
+            add $t1, $t1, $t3       # doodle position - 1 row
             sw $t1, 0($t2)          # update doodle_origin
 
             # Draw the doodle in the new position.
@@ -810,7 +872,8 @@
 
             # the highest we can go is the height of the top platform, so we need to store that to perform checks.
             lw $t0, 8($t8)
-            addi $t0, $t0, 124      # get last block of the top platforms row.
+            lw $t1, ROW_WIDTH
+            add $t0, $t0, $t1       # get last block of the top platforms row.
 
             # if doodle <= $t0, we have to redraw the map.
             lw $t1, doodle_origin
@@ -839,7 +902,9 @@
             # We need to send our friend the doodle up 1 row.
             la $t2, doodle_origin
             lw $t1, 0($t2)
-            addi $t1, $t1, -128     # doodle position + 1 row
+            lw $t0, ROW_BELOW
+            sub $t1, $t1, $t0       # doodle position + 1 row
+
             sw $t1, 0($t2)          # update doodle_origin
 
             # Next, we need to look into updating the candidate_platform variable.
