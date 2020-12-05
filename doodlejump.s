@@ -26,22 +26,31 @@
 #
 #####################################################################
 .data
+    # Timers
     jump_sleep_time:    .word 80               # ms to sleep between drawing
     platform_sleep:     .word 10
+
+    # Colours
     background:         .word 0xDAEAFC         # Background colour of the display
     doodle_colour:      .word 0xF9C09F
     platform_colour:    .word 0x00ff00
 
+    # IO Addresses
     displayAddress:     .word 0x10008000
     keyPress:           .word 0xffff0000
     keyValue:           .word 0xffff0004
 
-    platform_width:     .word 12                 # platform width
+    # Program constants
+    block_size:         .word 8
+    display_width:      .word 512
+
+    platform_width:     .word 12
     num_platforms:      .word 3
-    platform_distance:  .word 20
+    platform_distance:  .word 20                # vertical distance between platforms
 
     ROW_WIDTH:          .word 252               # This is for a 512 x 512 display.
     ROW_BELOW:          .word 256               # same column, one row below
+
     # Array of 3 platforms.
     #   - in both platform_arr and row_arr, the first entry is the bottom platform.
     #   - platform_arr stores the leftmost column index (col * 4, col in [0, 31-platform_width])
@@ -83,8 +92,14 @@
     # argument: $a0 = colour
     FUNCTION_DRAW_BACKGROUND:
         add $t0, $zero, $a0
+
         li $t1, 0
-        li $t2, 4096
+        lw $t2, block_size
+        lw $t3, display_width
+
+        mult $t2, $t3
+        mflo $t2                # i < $t2 = display_width * block_size
+
         DRAW_BACKGROUND_LOOP:
             # first, we want to make sure we're not at the last block
             beq $t1, $t2, FINISH_BACKGROUND
@@ -142,7 +157,14 @@
             add $t3, $t3, $t9   # platform_arr[$t2]
 
             lw $a0, platform_width
+            addi $sp, $sp, -4
+            sw $t2, 0($sp)      # store our loop var on the stack
+
             jal FUNCTION_GENERATE_RANDOM_PLATFORM
+
+            lw $t2, 0($sp)      # get the loop var back from the stack
+            addi $sp, $sp, 4
+
             add $t0, $zero, $v0 # column * 4
             sw $t0, 0($t3)      # platform_arr[$t2] = $t0
 
@@ -170,7 +192,11 @@
         la $t3, doodle_origin
 
         add $t0, $t0, $t1       # $t0 = offset of the 1st block of the bottom platform
-        addi $t0, $t0, -248     # -248 = -256 + 8 = 1 row above, 3 blocks to the right
+        lw $t1, ROW_BELOW
+        addi $t1, $t1, -8
+        sub $t0, $t0, $t1       # 1 row above, 3 blocks to the right
+
+        # TODO: If we change the doodle_origin data structure, update the doodle's boundary here.
         sw $t0, 0($t3)          # doodle_origin = 3rd block of bottom platform
 
         # move the doodle's colour onto the stack
@@ -230,7 +256,8 @@
 
     # Draw the doodle starting from the bottom left block
     # We have to consider if the doodle is wrapping around the edge of the screen.
-    #       A simple way to determine if a block is in the right most column is checking if:
+    #       Assuming a 512 x 512 display with block size 8, simple way to determine
+    #       if a block is in the right most column is checking if:
     #           (OFFSET / 4) === 63 (mod 64).
     #
     #       The reasoning for the equation is as follows.
@@ -262,13 +289,19 @@
 
         # Now we perform some bounds checks.
         # First, check if the left side of the doodle is on the edge.
-        addi $t3, $zero, 64
+        lw $t3, display_width
+        lw $t4, block_size
+        div $t3, $t4
+        mflo $t3
+
         addi $t4, $zero, 4
         div $t1, $t4
         mflo $t4                # doodle_origin / 4 = K
+
         div $t4, $t3
         mfhi $t2                # K (mod 64)
-        addi $t3, $zero, 63
+
+        subi $t3, $t3, 1        # last column
 
         # Branch if K === 63 (mod 64)
         beq $t2, $t3, LEFT_ON_EDGE
@@ -289,7 +322,11 @@
 
         # Check if the middle of the doodle is on the edge.
         addi $t2, $t1, 4
-        addi $t3, $zero, 64
+
+        lw $t3, display_width
+        lw $t4, block_size
+        div $t3, $t4
+        mflo $t3
 
         addi $t4, $zero, 4
         div $t2, $t4
@@ -297,11 +334,13 @@
 
         div $t4, $t3
         mfhi $t2                # K (mod) 63
-        addi $t3, $zero, 63
+
+        subi $t3, $t3, 1        # last column
 
         # Branch if K === 63 (mod 64)
         beq $t2, $t3, MIDDLE_ON_EDGE
 
+        # TODO: If we change the doodle_origin data structure, *USE* the doodle boundary here.
         # At this point, we just complete a normal doodle drawing.
         addi $t2, $t1, 8        # bottom right
 
@@ -323,6 +362,7 @@
 
             # "right side" of doodle
             # Take doodle origin and send it to the left side
+            # TODO: If we change the doodle_origin data structure, *USE* the doodle boundary here.
             addi $t2, $t1, 8
             lw $t3, ROW_BELOW
             sub $t2, $t2, $t3           # bottom right
@@ -350,6 +390,8 @@
             j END_DOODLE_DRAWING
 
         MIDDLE_ON_EDGE:
+
+            # TODO: If we change the doodle_origin data structure, *USE* the doodle boundary here.
             lw $t3, ROW_BELOW
             addi $t2, $t1, 8
             sub $t2, $t2, $t3           # bottom "right"
@@ -375,8 +417,12 @@
 
         # Update the doodle
         lw $t1, doodle_origin
+
         # set up for bounds check
-        addi $t2, $zero, 64
+        lw $t2, display_width
+        lw $t4, block_size
+        div $t2, $t4
+        mflo $t2
 
         addi $t4, $zero, 4
         div $t2, $t4
@@ -399,34 +445,38 @@
 
             # Move the doodle's origin to the right side of the screen.
             LEFT_EDGE:
-               lw $t2, ROW_WIDTH
-               add $t1, $t2, $t1
+                lw $t2, ROW_WIDTH
+                add $t1, $t2, $t1
 
-               la $t2, doodle_origin
-               sw $t1, 0($t2)
-               j END_UPDATE_DOODLE
+                # TODO: If we change the doodle_origin data structure, CHANGE the doodle boundary here.
+                la $t2, doodle_origin
+                sw $t1, 0($t2)
+                j END_UPDATE_DOODLE
 
         MOVE_RIGHT:
             # We have to check to make sure the doodle isn't on the right most edge of the screen.
             # doodle_origin / 4 % 64 == 63
-            addi $t3, $zero, 63
+            subi $t3, $t2, 1            # last column
             beq $t2, $t3, RIGHT_EDGE
             j NORMAL_MOVEMENT
 
             # Move the doodle's origin to the left side of the screen.
             RIGHT_EDGE:
-               lw $t2, ROW_WIDTH
-               sub $t1, $t1, $t2
+                lw $t2, ROW_WIDTH
+                sub $t1, $t1, $t2
 
-               la $t2, doodle_origin
-               sw $t1, 0($t2)
-               j END_UPDATE_DOODLE
+                # TODO: If we change the doodle_origin data structure, CHANGE the doodle boundary here.
+                la $t2, doodle_origin
+                sw $t1, 0($t2)
+                j END_UPDATE_DOODLE
 
         NORMAL_MOVEMENT:
             # General case for movement
             addi $t2, $zero, 4
             mult $t0, $t2
             mflo $t0                # Offset (+/-4)
+
+            # TODO: If we change the doodle_origin data structure, CHANGE the doodle boundary here.
             la $t2, doodle_origin
             add $t1, $t1, $t0       # doodle_origin += offset
             sw $t1, 0($t2)
@@ -500,7 +550,12 @@
     # Arg: $a0 = width of this platform
     FUNCTION_GENERATE_RANDOM_PLATFORM:
         add $t0, $zero, $a0      # $t0 = width of this platform.
-        li $t1, 61
+        lw $t1, display_width
+        lw $t2, block_size
+
+        div $t1, $t2
+        mflo $t1
+        subi $t1, $t1, 2        # we want to be 2 blocks from the wall TODO: may change if we change doodle_origin data structure.
         sub $t1, $t1, $t0
 
         # random(2, 61 - platform width)
