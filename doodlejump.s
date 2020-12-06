@@ -45,8 +45,10 @@
     display_width:      .word 512
 
     platform_width:     .word 12
-    num_platforms:      .word 3
-    platform_distance:  .word 20                # vertical distance between platforms
+    #num_platforms:      .word 3
+    num_platforms:      .word 4
+    #platform_distance:  .word 20                # vertical distance between platforms
+    platform_distance:  .word 18                # vertical distance between platforms
 
     ROW_WIDTH:          .word 252               # This is for a 512 x 512 display.
     ROW_BELOW:          .word 256               # same column, one row below
@@ -56,8 +58,11 @@
     #   - platform_arr stores the leftmost column index (col * 4, col in [0, 31-platform_width])
     #   - row_arr stores the row index (row*128, row in [0, 31])
     #       - we pick 128 because that's the index of the first block after the 1st row
-    platform_arr:       .word 0:3
-    row_arr:            .word 16128, 11008, 5888    # Store the row_indexes of each platform. Add these to displayAddress.
+    #platform_arr:       .word 0:3
+    #row_arr:            .word 16128, 11008, 5888    # Store the row_indexes of each platform. Add these to displayAddress.
+
+    platform_arr:       .word 0:4
+    row_arr:            .word 16128, 11520, 6912, 2304    # Store the row_indexes of each platform. Add these to displayAddress.
 
     # Doodle Character
     #   - We will only store the bottom left of the doodle, the rest can easily be calculated on the fly.
@@ -626,10 +631,10 @@
             # First, we increase each platform's row by 1.
             # for i in range(len(arr)):
             #   arr[i] = arr[i] + 1
-            # if arr[0] == 64:      # if our bottom row is off the screen
-            #   arr[0] = arr[1]
-            #   arr[1] = arr[2]
-            #   arr[2] = 2          # i.e the top platform goes to the 3rd row from the top.
+            # if our bottom row is off the screen
+            # for i in range(len(arr) - 1)
+            #   arr[i] = arr[i + 1]
+            # Generate a new top platform.
             CALCULATE_NEW_PLATFORM_ROWS:
                 lw $t1, num_platforms
                 # while i < # platforms
@@ -651,55 +656,111 @@
                 addi $t0, $t0, 1
                 j CALCULATE_NEW_PLATFORM_ROWS
 
-            # TODO: Generally speaking this needs to be less hardcoded.
-            #       We assume that there will only be 3 platforms on the display, we should
-            #       generalize this so that we can have n platforms each a distance y apart.
-
-            # We want to see if the bottom platform has fallen off the map
+            # Check if the bottom platform has fallen off the map.
+            # If it has, move all the old platforms in the arrays and
+            # generate a new platform.
             CHECK_PLATFORM_OVERFLOW:
-                # TODO: Instead of hardcoding 16384, we should have:
-                #           - a display_width variable in memory
-                #           - a block_size variable in memory
-                #       Then we can computer rows = display_width / block_size
-                #       and our max loop val will be threshold = (4 * rows)^2.
-                #
-                # Check if row_arr[0] == 16384 == 64 (row) * 128
+                # Check if we've gone past the last block on the display.
                 lw $t0, 0($t8)          # 0($t8) = row_arr[0]
-                addi $t2, $zero, 16384
-                # if row_arr[0] != 16384, draw the new platforms
+                lw $t1, display_width
+                lw $t2, block_size
+
+                div $t1, $t2
+                mflo $t1
+
+                lw $t2, ROW_BELOW
+                mult $t1, $t2
+                mflo $t2                # $t2 = offset of first block past last block on display.
+
+                # if row_arr[0] != $t2, draw the new platforms
                 bne $t0, $t2, DRAW_NEW_PLATFORMS
 
-                # row_arr[0] == 16384 so we have to move our values around
-                lw $t0, 4($t8)      # $t0 = row_arr[1]
-                lw $t1, 8($t8)      # $t1 = row_arr[2]
-                sw $t0, 0($t8)      # row_arr[0] = row_arr[1]
-                sw $t1, 4($t8)      # row_arr[1] = row_arr[2]
+                # We went past the last block so rearrange the array.
+                li $t1, 0
+                lw $t2, num_platforms
+                addi $t2, $t2, -1       # We will modify all but the final platform
 
-                # TODO: generate a new platform using variables
-                #       I don't like depending on hard coded values.
-                #       They make it really hard to have more than 3 platforms, or have platforms
-                #       that are spaced by varying amounts. I think I can handle this in Milestone 5.
-                # We want to bring a new platform in from the top.
-                # This platform has to maintain the same distance from the middle platform as the bottom one.
-                # Since we've hardcoded the platform rows, the middle platform is in the 24th row, so
-                # the new platform has to go to the 4th row.
-                lw $t0, ROW_BELOW
-                li $t1, 4
-                mult $t0, $t1
-                mflo $t0
-                sw $t0, 8($t8)      # row_arr[2] = 4 * ROW_BELOW
+                # In this loop, we perform row_arr[i] = row_arr[i + 1]
+                # for every platform excluding the last.
+                # This is how we shift the middle to the bottom, the top to the middle, etc.
+                SWAP_PLATFORMS_LOOP:
+                    beq $t1, $t2, GENERATE_TOP_PLATFORM
+                    li $t3, 4
+                    mult $t1, $t3
+                    mflo $t3
 
-                # Now we need to move the values in the platform array.
-                lw $t0, 4($t9)      # $t0 = platform_arr[1]
-                lw $t1, 8($t9)      # $t1 = platform_arr[2]
-                sw $t0, 0($t9)      # platform_arr[0] = platform_arr[1]
-                sw $t1, 4($t9)      # platform_arr[1] = platform_arr[2]
+                    # update row_arr
+                    add $t4, $t3, $t8   # offset into row_arr
+                    addi $t5, $t4, 4    # offset + 4 is the next platform
 
-                lw $a0, platform_width
-                jal FUNCTION_GENERATE_RANDOM_PLATFORM
-                add $t0, $zero, $v0
-                sw $t0, 8($t9)
-                j DRAW_NEW_PLATFORMS
+                    lw $t0, 0($t5)      # $t0 = row_arr[i + 1]
+                    sw $t0, 0($t4)      # row_arr[i] = $t0
+
+                    # update platform_arr
+                    add $t4, $t3, $t9   # offset into platform_arr
+                    addi $t5, $t4, 4    # offset + 4 is the next platform
+
+                    lw $t0, 0($t5)      # $t0 = platform_arr[i + 1]
+                    sw $t0, 0($t4)      # platform_arr[i] = $t0
+
+                    addi $t1, $t1, 1    # increment counter.
+                    j SWAP_PLATFORMS_LOOP
+
+                # Using the 2nd from the top platform's row and platform_distance,
+                # generate a new top platform.
+                GENERATE_TOP_PLATFORM:
+                    # 1. Get the second last platform's row
+                    lw $t0, num_platforms
+                    addi $t0, $t0, -2
+                    li $t1, 4
+                    mult $t0, $t1
+                    mflo $t1            # index of 2nd last platform
+
+                    add $t1, $t1, $t8  # $t1 = addr(row_arr[2nd last])
+                    lw $t0, 0($t1)      # $t0 = row_arr[2nd_last]
+
+                    # Since the row_arr array contains offsets in the 0th column, we can divide by the
+                    # ROW_BELOW constant to get the row value.
+                    lw $t1, ROW_BELOW
+                    div $t0, $t1
+                    mflo $t0            # $t0 = row [0, 63] if 512x512 display with size 8 blocks.
+
+                    # 2. Determine where the top platform should go.
+                    lw $t2, platform_distance
+                    sub $t0, $t0, $t2  # $t2 = row of 2nd last platform - distance between platforms
+
+                    # $t0 holds our current platform row
+                    mult $t1, $t0
+                    mflo $t2
+
+                    lw $t0, num_platforms
+                    addi $t0, $t0, -1
+                    li $t1, 4
+                    mult $t0, $t1
+                    mflo $t1            # index of last platform
+
+                    add $t1, $t1, $t8   # $t1 = addr(row_arr[last])
+                    sw $t2, 0($t1)      # row_arr[last] = new row
+
+                    # store $t1 on the stack because we seem to overwrite it in FUNCTION_GENERATE_RANDOM_PLATFORM
+                    addi $sp, $sp, -4
+                    sw $t1, 0($sp)
+                    lw $a0, platform_width
+
+                    jal FUNCTION_GENERATE_RANDOM_PLATFORM
+                    add $t0, $zero, $v0
+
+                    # Pop the old $t1 value off the stack
+                    lw $t1, 0($sp)
+                    addi $sp, $sp, 4
+
+                    # Get the array offset-index back
+                    sub $t1, $t1, $t8
+
+                    # Get offset into platform_arr
+                    add $t1, $t1, $t9
+                    sw $t0, 0($t1)
+                    j DRAW_NEW_PLATFORMS
 
             DRAW_NEW_PLATFORMS:
                 # put the platform colour on the stack before drawing.
@@ -925,8 +986,21 @@
 
             addi $s1, $s1, 1        # increment our counter
 
-            # the highest we can go is the height of the top platform, so we need to store that to perform checks.
-            lw $t0, 8($t8)
+            # Make it so that the highest the doodle goes is 1 above the middle platform.
+            lw $t0, num_platforms
+            li $t1, 2
+            div $t0, $t1
+            mflo $t0
+            mfhi $t1
+            add $t0, $t0, $t1
+
+            li $t1, 4
+            mult $t0, $t1
+            mflo $t0
+
+            add $t1, $t0, $t8
+            lw $t0, 0($t1)
+
             lw $t1, ROW_WIDTH
             add $t0, $t0, $t1       # get last block of the top platforms row.
 
