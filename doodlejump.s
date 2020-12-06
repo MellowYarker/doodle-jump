@@ -26,21 +26,21 @@
 #
 #####################################################################
 .data
-    # Timers
+    # ---Timers---
     jump_sleep_time:    .word 80               # ms to sleep between drawing
     platform_sleep:     .word 10
 
-    # Colours
+    # ---Colours---
     background:         .word 0xDAEAFC         # Background colour of the display
     doodle_colour:      .word 0xF9C09F
     platform_colour:    .word 0x00ff00
 
-    # IO Addresses
+    # ---IO Addresses---
     displayAddress:     .word 0x10008000
     keyPress:           .word 0xffff0000
     keyValue:           .word 0xffff0004
 
-    # Program constants
+    # ---Program constants---
     block_size:         .word 8
     display_width:      .word 512
 
@@ -53,7 +53,7 @@
     ROW_WIDTH:          .word 252               # This is for a 512 x 512 display.
     ROW_BELOW:          .word 256               # same column, one row below
 
-    # Array of 3 platforms.
+    # ---Array of 3 platforms---
     #   - in both platform_arr and row_arr, the first entry is the bottom platform.
     #   - platform_arr stores the leftmost column index (col * 4, col in [0, 31-platform_width])
     #   - row_arr stores the row index (row*128, row in [0, 31])
@@ -64,7 +64,7 @@
     platform_arr:       .word 0:4
     row_arr:            .word 16128, 11520, 6912, 2304    # Store the row_indexes of each platform. Add these to displayAddress.
 
-    # Doodle Character
+    # ---Doodle Character---
     #   - We will only store the bottom left of the doodle, the rest can easily be calculated on the fly.
     #   - We will store it's offset as a value in [0, 4092], so we have to add it to the base of the display
     #     when drawing.
@@ -72,7 +72,20 @@
     bounce_height:      .word 24                # Doodle can jump up 14 rows.
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
+    # ---Score Keeping---
+    #
+    # score_digits is an array of pointers to:
+    #   struct digit {
+    #       int *address;   // pointer to some address on the display. Represents top left corner of a 7-seg display type shape.
+    #       int value;      // an integer from 0 to 9.
+    #   }
+    # structs, which are allocated on the heap.
+    # We could store (digit.value) as a byte (probably?, since 2^8 == 256) but we only allocate 5 of these so it's not worth
+    # the mental gymnastics of having a 5 byte struct.
     score:              .word 0                 # Game score.
+    max_score_length:   .word 5                 # the number of digits in the score
+    score_digits:       .word 0:5               # array containing pointers to structs on the heap that represent our score.
+                                                #   The digits are in reverse order. Assuming max score of 9999
 
 .text
     MAIN:
@@ -82,6 +95,8 @@
         # flags that indicate whether we've finished setting up or not.
         li $s5, 0   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
         li $s7, 0   # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
+
+        jal FUNCTION_ALLOCATE_SCORE_ARRAY
 
         lw $a0, background      # paint the background white.
         jal FUNCTION_DRAW_BACKGROUND
@@ -94,6 +109,40 @@
         # those sections of code, we will check for user input
         # and redraw the map as necessary.
         j FALL
+
+    # No one is ever going to play this game to a score of 10,000+ so I'm not gonna bother
+    # dynamically allocating/deallocating an array of pointers to structs on the heap.
+    # Lets just allocate 5 pointers to structs on the heap here and be done with it.
+    # TODO: Lets assign the top left corner of each of these structs 7-seg displays
+    FUNCTION_ALLOCATE_SCORE_ARRAY:
+        lw $t0, max_score_length
+        li $t1, 0               # counter
+        la $t5, score_digits
+
+        ALLOCATION_LOOP:
+            beq $t0, $t1, FINISH_ALLOCATION
+
+            # Just a quick note: we allocate 8 bytes because our "struct"
+            # is 2 words, the first is an address, the second is an integer.
+            li $a0, 8           # num bytes to allocate
+            li $v0, 9           # call sbrk() syscall
+            syscall
+
+            move $t2, $v0       # Save the address in $t2
+
+            li $t3, 4
+            mult $t1, $t3
+            mflo $t3
+
+            add $t3, $t3, $t5   # offset into array
+            sw $t2, 0($t3)      # store the memory address in the array
+
+            # Increment the counter
+            addi $t1, $t1, 1
+            j ALLOCATION_LOOP
+
+        FINISH_ALLOCATION:
+            jr $ra
 
     # argument: $a0 = colour
     FUNCTION_DRAW_BACKGROUND:
@@ -586,13 +635,64 @@
         add $v0, $zero, $t0
         jr $ra
 
-    # the doodle has hit max height and so we have to move the platforms down.
-    UPDATE_PLATFORMS:
-        # Update the game score.
+    # Update the players score, as well as the score_digits array and more.
+    FUNCTION_UPDATE_SCORE:
+        # First, we increment the score by 1.
         la $t0, score
+
         lw $t1, 0($t0)
         addi $t1, $t1, 1
         sw $t1, 0($t0)
+
+        # Next, we want to update the values in our digits array
+        li $t0, 0           # current index in array and the counter
+        lw $t2, score
+        li $t3, 10          # divisor to get last digit of score
+
+        # we're going to store the value of $s2 on the stack because I want to store the address
+        # of the score_digits array there.
+        addi $sp, $sp, -4
+        sw $s2, 0($sp)
+
+        la $s2, score_digits
+
+        # We want to access each digit of the score.
+        # While the result of division by 10 is non-zero,
+        # divide by 10 and check the remainder.
+        #
+        # We read digits back to front, so score_digits is reversed
+        SPLIT_SCORE_LOOP:
+            div $t2, $t3
+            mflo $t2            # quotient
+            mfhi $t4            # remainder (last digit)
+
+            li $t5, 4
+            mult $t0, $t5
+            mflo $t5
+
+            add $t5, $t5, $s2   # offset in array
+            lw $t6, 0($t5)      # $t6 = pointer to heap allocated struct base address
+
+            addi $t6, $t6, 4    # address of second property of this struct
+            sw $t4, 0($t6)      # update the value at this struct
+
+            # If we've read the last digit, we're done.
+            beq $t2, $zero, END_SCORE_UPDATE
+
+            # Otherwise, we have more digits to count.
+            addi $t0, $t0, 1
+            j SPLIT_SCORE_LOOP
+
+        END_SCORE_UPDATE:
+            # reset the value of $s2
+            lw $s2, 0($sp)
+            addi $sp, $sp, 4
+            jr $ra
+
+    # the doodle has hit max height and so we have to move the platforms down.
+    UPDATE_PLATFORMS:
+        # Update the game score.
+        jal FUNCTION_UPDATE_SCORE
 
         li $s3, 0           # $s3 will be our loop counter, we loop 10x
 
