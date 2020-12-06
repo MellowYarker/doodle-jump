@@ -338,6 +338,11 @@
         div $t3, $t4
         mflo $t3
 
+        lw $t3, display_width
+        lw $t4, block_size
+        div $t3, $t4
+        mflo $t3
+
         li $t4, 4
         div $t2, $t4
         mflo $t4                # (doodle_origin + 4) / 4 = K
