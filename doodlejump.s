@@ -113,11 +113,18 @@
     # No one is ever going to play this game to a score of 10,000+ so I'm not gonna bother
     # dynamically allocating/deallocating an array of pointers to structs on the heap.
     # Lets just allocate 5 pointers to structs on the heap here and be done with it.
-    # TODO: Lets assign the top left corner of each of these structs 7-seg displays
     FUNCTION_ALLOCATE_SCORE_ARRAY:
         lw $t0, max_score_length
         li $t1, 0               # counter
         la $t5, score_digits
+
+        # I want to use $s1 to increment the base address for each digit
+        # so we have to store it on the stack.
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+        # $s1 = base address of this 7-seg display digit.
+        li $s1, 1512            # HARDCODED VALUE! 5th row, 58th col. 1512 = 58*4 + 5 * 256
+        add $s1, $s1, $s0       # $s0 is the base display
 
         ALLOCATION_LOOP:
             beq $t0, $t1, FINISH_ALLOCATION
@@ -136,12 +143,20 @@
 
             add $t3, $t3, $t5   # offset into array
             sw $t2, 0($t3)      # store the memory address in the array
+            sw $s1, 0($t2)      # store the base address for the digit in the struct.
 
             # Increment the counter
             addi $t1, $t1, 1
+
+            # Decrement the base address 4 columns
+            addi $s1, $s1, -16
+
             j ALLOCATION_LOOP
 
         FINISH_ALLOCATION:
+            # restore $s1
+            lw $s1, 0($sp)
+            addi $sp, $sp, 4
             jr $ra
 
     # argument: $a0 = colour
