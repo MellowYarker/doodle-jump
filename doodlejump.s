@@ -650,6 +650,101 @@
         add $v0, $zero, $t0
         jr $ra
 
+    #   Our main tool for drawing on the screen
+    #   Arguments:
+    #       - $a0 = colour
+    #       - $a1 = starting address
+    #       - $a2 = direction
+    #             0: right
+    #             1: up
+    #             2: left
+    #             3: down
+    #       - $a3 = number of blocks to draw (including base)
+    #
+    FUNCTION_DRAW_TOOL:
+        move $t0, $a0   # colour
+        move $t1, $a1   # Base address
+        move $t2, $a2   # direction
+        move $t3, $a3   # number of blocks to draw
+        li $t5, 0       # loop counter
+
+        # We will be using $s1 to store the delta value as we draw.
+        # Save it on the stack first.
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+        # First, if we got 0 or 2, go to draw horizontal.
+        # We check this first because the incrementor for
+        # L/R is identical up to the sign, and the same goes
+        # for moving U/D
+        li $t4, 2
+        div $t2, $t4
+        mfhi $t4
+
+        beq $t4, $zero, DRAW_HORIZONTAL
+
+        # Otherwise we're drawing vertically.
+        j DRAW_VERTICAL
+
+        DRAW_HORIZONTAL:
+            # Set our incrementor/decrementor
+            # Since we want to shift by columns, our delta is 4*i, where i is the index.
+            li $s1, 4
+
+            # If we're drawing left, flip the sign.
+            li $t4, 2
+            beq $t2, $t4, DRAW_LEFT
+
+            j DRAW_TOOL_LOOP
+
+            DRAW_LEFT:
+                # offset value decreases as we go left, make the delta negative
+                li $t4, -1
+                mult $s1, $t4
+                mflo $s1
+                j DRAW_TOOL_LOOP
+
+        DRAW_VERTICAL:
+            # Set our incrementor/decrementor
+            # Since we want to shift by rows, our delta is ROW_BELOW*i, where i is the index.
+            lw $s1, ROW_BELOW
+
+            # If we're drawing up, flip the sign.
+            li $t4, 1
+            beq $t2, $t4, DRAW_UP
+
+            j DRAW_TOOL_LOOP
+
+            DRAW_UP:
+                # offset value decreases as we go up, make the delta negative
+                li $t4, -1
+                mult $s1, $t4
+                mflo $s1
+                j DRAW_TOOL_LOOP
+
+        # Now that our delta is set up, we want to draw the requested line.
+        DRAW_TOOL_LOOP:
+            # If we've drawn the requested number of blocks, finish up.
+            beq $t5, $t3, FINISH_DRAWING
+
+            # We want to draw the block.
+            mult $t5, $s1       # $t5 is the counter, $s1 is the delta
+            mflo $t6
+            add $t6, $t6, $t1   # $t6 = offset in the display
+
+            sw $t0, 0($t6)      # draw the block the requested colour
+
+            # Increment the counter
+            addi $t5, $t5, 1
+
+            j DRAW_TOOL_LOOP
+
+        FINISH_DRAWING:
+            # Restore $s1
+            lw $s1, 0($sp)
+            addi $sp, $sp, 4
+
+            jr $ra
+
     # Update the players score, as well as the score_digits array and more.
     FUNCTION_UPDATE_SCORE:
         # First, we increment the score by 1.
