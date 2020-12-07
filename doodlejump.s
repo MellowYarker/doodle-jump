@@ -34,6 +34,7 @@
     background:         .word 0xDAEAFC         # Background colour of the display
     doodle_colour:      .word 0xF9C09F
     platform_colour:    .word 0x00ff00
+    score_colour:       .word 0x000000
 
     # ---IO Addresses---
     displayAddress:     .word 0x10008000
@@ -86,6 +87,7 @@
     max_score_length:   .word 5                 # the number of digits in the score
     score_digits:       .word 0:5               # array containing pointers to structs on the heap that represent our score.
                                                 #   The digits are in reverse order. Assuming max score of 9999
+    score_length:       .word 1                 # The number of digits in the score.
 
 .text
     MAIN:
@@ -745,6 +747,175 @@
 
             jr $ra
 
+    # TODO: complete this.
+    # Draws the score on the display.
+    # Args: $a0 = colour to draw.
+    FUNCTION_DRAW_SCORE:
+        # Because we have to call the draw tool function, we will lose our $ra
+        # Therefore, we need to store it on the stack.
+        addi $sp, $sp, -4
+        sw $ra, 0($sp)
+
+        # Going to use $s1 for the colour
+        # We will use the following callee saved registers:
+        #   $s1 = colour
+        #   $s2 = score_digits array
+        #   $s3 = loop counter
+        #   $s4 = top left corner of digit's 7 seg display
+        # Store these registers on the stack for preservation.
+        addi $sp $sp, -4
+        sw $s1, 0($sp)
+
+        addi $sp $sp, -4
+        sw $s2, 0($sp)
+
+        addi $sp $sp, -4
+        sw $s3, 0($sp)
+
+        addi $sp $sp, -4
+        sw $s4, 0($sp)
+
+        move $s1, $a0
+        la $s2, score_digits
+        li $s3, 0               # loop counter
+
+        DRAW_SCORE_LOOP:
+            lw $t1, score_length
+            beq $s3, $t1, FINISH_DRAWING_SCORE
+            li $t3, 4
+            mult $s3, $t3
+            mflo $t3
+
+            add $t3, $t3, $s2   # Offset in the score_digits array
+            lw $t3, 0($t3)      # $t3 = address of struct
+
+            # Get the value of the digit
+            lw $t4, 4($t3)
+
+            beq $t4, 0, DRAW_ZERO
+            beq $t4, 1, DRAW_ONE
+            beq $t4, 2, DRAW_TWO
+            beq $t4, 3, DRAW_THREE
+            beq $t4, 4, DRAW_FOUR
+            beq $t4, 5, DRAW_FIVE
+            beq $t4, 6, DRAW_SIX
+            beq $t4, 7, DRAW_SEVEN
+            beq $t4, 8, DRAW_EIGHT
+            beq $t4, 9, DRAW_NINE
+
+            DRAW_ZERO:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the top bar
+                move $a0, $s1     # colour
+                move $a1, $s4     # base
+                li $a2, 0       # go right
+                li $a3, 3       # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the left side
+
+                move $a0, $s1
+                move $a1, $s4
+                lw $t5, ROW_BELOW
+                add $a1, $a1, $t5   # base
+                li $a2, 3           # go down
+                li $a3, 4           # 4 blocks
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t5, ROW_BELOW
+                li $t6, 4
+                mult $t5, $t6
+                mflo $t5
+                addi $t5, $t5, 4
+                add $a1, $a1, $t5
+
+                li $a2, 0       # go right
+                li $a3, 2       # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the right bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t5, ROW_BELOW
+                li $t6, 8
+                add $t5, $t5, $t6
+                add $a1, $a1, $t5
+
+                li $a2, 3       # go down
+                li $a3, 3       # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_ONE:
+
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_TWO:
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_THREE:
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_FOUR:
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_FIVE:
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_SIX:
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_SEVEN:
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_EIGHT:
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_NINE:
+                j FINISH_DRAWING_DIGIT
+
+            FINISH_DRAWING_DIGIT:
+                # Increment loop counter.
+                addi $s3, $s3, 1
+                j DRAW_SCORE_LOOP
+
+        FINISH_DRAWING_SCORE:
+
+            # Restore $s registers.
+            lw $s4, 0($sp)
+            addi $sp $sp, 4
+            lw $s3, 0($sp)
+            addi $sp $sp, 4
+            lw $s2, 0($sp)
+            addi $sp $sp, 4
+            lw $s1, 0($sp)
+            addi $sp $sp, 4
+
+            # Restore $ra
+            lw $ra, 0($sp)
+            addi $sp, $sp, 4
+
+            jr $ra
+
+
     # Update the players score, as well as the score_digits array and more.
     FUNCTION_UPDATE_SCORE:
         # First, we increment the score by 1.
@@ -797,12 +968,22 @@
             # reset the value of $s2
             lw $s2, 0($sp)
             addi $sp, $sp, 4
+
+            la $t1, score_length
+            addi $t0, $t0, 1
+            sw $t0, 0($t1)      # update the number of digits in the score.
             jr $ra
 
     # the doodle has hit max height and so we have to move the platforms down.
     UPDATE_PLATFORMS:
+        # Erase the current score
+        lw $a0, background
+        jal FUNCTION_DRAW_SCORE
         # Update the game score.
         jal FUNCTION_UPDATE_SCORE
+
+        lw $a0, score_colour
+        jal FUNCTION_DRAW_SCORE
 
         li $s3, 0           # $s3 will be our loop counter, we loop 10x
 
