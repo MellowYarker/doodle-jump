@@ -26,21 +26,22 @@
 #
 #####################################################################
 .data
-    # Timers
+    # ---Timers---
     jump_sleep_time:    .word 80               # ms to sleep between drawing
     platform_sleep:     .word 10
 
-    # Colours
+    # ---Colours---
     background:         .word 0xDAEAFC         # Background colour of the display
     doodle_colour:      .word 0xF9C09F
     platform_colour:    .word 0x00ff00
+    score_colour:       .word 0x000000
 
-    # IO Addresses
+    # ---IO Addresses---
     displayAddress:     .word 0x10008000
     keyPress:           .word 0xffff0000
     keyValue:           .word 0xffff0004
 
-    # Program constants
+    # ---Program constants---
     block_size:         .word 8
     display_width:      .word 512
 
@@ -53,7 +54,7 @@
     ROW_WIDTH:          .word 252               # This is for a 512 x 512 display.
     ROW_BELOW:          .word 256               # same column, one row below
 
-    # Array of 3 platforms.
+    # ---Array of 3 platforms---
     #   - in both platform_arr and row_arr, the first entry is the bottom platform.
     #   - platform_arr stores the leftmost column index (col * 4, col in [0, 31-platform_width])
     #   - row_arr stores the row index (row*128, row in [0, 31])
@@ -64,7 +65,7 @@
     platform_arr:       .word 0:4
     row_arr:            .word 16128, 11520, 6912, 2304    # Store the row_indexes of each platform. Add these to displayAddress.
 
-    # Doodle Character
+    # ---Doodle Character---
     #   - We will only store the bottom left of the doodle, the rest can easily be calculated on the fly.
     #   - We will store it's offset as a value in [0, 4092], so we have to add it to the base of the display
     #     when drawing.
@@ -72,15 +73,32 @@
     bounce_height:      .word 24                # Doodle can jump up 14 rows.
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
+    # ---Score Keeping---
+    #
+    # score_digits is an array of pointers to:
+    #   struct digit {
+    #       int *address;   // pointer to some address on the display. Represents top left corner of a 7-seg display type shape.
+    #       int value;      // an integer from 0 to 9.
+    #   }
+    # structs, which are allocated on the heap.
+    # We could store (digit.value) as a byte (probably?, since 2^8 == 256) but we only allocate 5 of these so it's not worth
+    # the mental gymnastics of having a 5 byte struct.
+    score:              .word 0                 # Game score.
+    max_score_length:   .word 5                 # the number of digits in the score
+    score_digits:       .word 0:5               # array containing pointers to structs on the heap that represent our score.
+                                                #   The digits are in reverse order. Assuming max score of 9999
+    score_length:       .word 1                 # The number of digits in the score.
+
 .text
     MAIN:
         # setup
-        lw $s0, displayAddress 	# $s0 stores the base address for display
-        add $s1, $zero, $s0     # $s1 stores the location of the current block
+        lw $s0, displayAddress 	# $s0 stores the base address for display, we never change it.
 
-        # ~~platforms~~
-        add $s5, $zero, $zero   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
-        add $s7, $0, $0         # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
+        # flags that indicate whether we've finished setting up or not.
+        li $s5, 0   # 0 => have yet to draw platforms, 1 => starting platforms have been drawn.
+        li $s7, 0   # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
+
+        jal FUNCTION_ALLOCATE_SCORE_ARRAY
 
         lw $a0, background      # paint the background white.
         jal FUNCTION_DRAW_BACKGROUND
@@ -93,6 +111,55 @@
         # those sections of code, we will check for user input
         # and redraw the map as necessary.
         j FALL
+
+    # No one is ever going to play this game to a score of 10,000+ so I'm not gonna bother
+    # dynamically allocating/deallocating an array of pointers to structs on the heap.
+    # Lets just allocate 5 pointers to structs on the heap here and be done with it.
+    FUNCTION_ALLOCATE_SCORE_ARRAY:
+        lw $t0, max_score_length
+        li $t1, 0               # counter
+        la $t5, score_digits
+
+        # I want to use $s1 to increment the base address for each digit
+        # so we have to store it on the stack.
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+        # $s1 = base address of this 7-seg display digit.
+        li $s1, 1512            # HARDCODED VALUE! 5th row, 58th col. 1512 = 58*4 + 5 * 256
+        add $s1, $s1, $s0       # $s0 is the base display
+
+        ALLOCATION_LOOP:
+            beq $t0, $t1, FINISH_ALLOCATION
+
+            # Just a quick note: we allocate 8 bytes because our "struct"
+            # is 2 words, the first is an address, the second is an integer.
+            li $a0, 8           # num bytes to allocate
+            li $v0, 9           # call sbrk() syscall
+            syscall
+
+            move $t2, $v0       # Save the address in $t2
+
+            li $t3, 4
+            mult $t1, $t3
+            mflo $t3
+
+            add $t3, $t3, $t5   # offset into array
+            sw $t2, 0($t3)      # store the memory address in the array
+            sw $s1, 0($t2)      # store the base address for the digit in the struct.
+
+            # Increment the counter
+            addi $t1, $t1, 1
+
+            # Decrement the base address 4 columns
+            addi $s1, $s1, -16
+
+            j ALLOCATION_LOOP
+
+        FINISH_ALLOCATION:
+            # restore $s1
+            lw $s1, 0($sp)
+            addi $sp, $sp, 4
+            jr $ra
 
     # argument: $a0 = colour
     FUNCTION_DRAW_BACKGROUND:
@@ -124,9 +191,8 @@
             jr $ra
 
     SETUP_GAME:
-        add $s1, $zero, $s0 # current block
         # We always have 3 platforms visible.
-        add $t2 $zero, $zero
+        li $t2, 0
 
         # if $s5 is 0, draw the platforms, otherwise skip
         beq $s5, $t2, SET_PLATFORMS
@@ -134,8 +200,8 @@
         beq $s7, $t2, SET_DOODLE
 
         # We don't need these values anymore, we will never enter the setup section again.
-        add $s5, $zero, $zero
-        add $s7, $zero, $zero
+        li $s5, 0
+        li $s7, 0
 
         # Wait for the signal "s" to start the game.
         IDLE:
@@ -185,7 +251,7 @@
             jal FUNCTION_DRAW_PLATFORM_LOOP
 
             # set $s5 to 1 to indicate we have drawn the starting platforms.
-            addi $s5, $zero, 1
+            li $s5, 1
             j SETUP_GAME
 
     # In SET_DOODLE, we want to initiate the doodle above the bottom platform.
@@ -208,18 +274,22 @@
         addi $sp, $sp, -4
         sw $t2, 0($sp)
         jal FUNCTION_DRAW_DOODLE
-        addi $s7, $zero, 1      # $s7 = 1, so we have finished drawing the initial doodle.
+        li $s7, 1      # $s7 = 1, so we have finished drawing the initial doodle.
         j SETUP_GAME
 
     # Read the keyboard input.
     #   If no/undefined keyboard input, $v0 == 0, $v1 == 0
     #   If we get keyboard input:
+    #
     #   Case 1: Doodle movement (j or k key)
     #           $v0 == 1,
     #           $v1 == -1 for (j) move left, 1 for (k) move right
+
+    #   Case 2: Restart Game (s key)
+    #           $v0 == 2
+    #           $v1 == 0
     #
     #   TODO: Add more values as we get to MS4+
-    #   Case 2: Restart Game (s key)
     FUNCTION_READ_KEYBOARD_INPUT:
         lw $t0, keyPress
         lw $t0, 0($t0)
@@ -229,10 +299,11 @@
         j UNDEFINED_KEY_PRESS
 
         KEYBOARD_INPUT:
-            lw $t1, keyValue    # value of the key that was pressed.
-            lw $t1, 0($t1)
+            lw $t1, keyValue    # location of key value
+            lw $t1, 0($t1)      # value of the key that was pressed
             # j = 0x6a
             # k = 0x6b
+            # s = 0x73
             beq $t1, 0x6a, HANDLE_J
             beq $t1, 0x6b, HANDLE_K
             beq $t1, 0x73, HANDLE_S
@@ -333,7 +404,12 @@
         div $t3, $t4
         mflo $t3
 
-        addi $t4, $zero, 4
+        lw $t3, display_width
+        lw $t4, block_size
+        div $t3, $t4
+        mflo $t3
+
+        li $t4, 4
         div $t2, $t4
         mflo $t4                # (doodle_origin + 4) / 4 = K
 
@@ -414,11 +490,12 @@
             jr $ra
 
     # We take in 1 argument, if $a0 == 1 we update.
-    # Next, we read a value off the stack -1 means go left, +1 means move right.
+    # We also read a value off the stack -1 means go left, +1 means move right.
+    #   The value doesn't matter if $a0 != 1, it's junk but we pop it anyways.
     FUNCTION_UPDATE_DOODLE:
-        lw $t0, 0($sp)      # Get the direction off the stack
+        lw $t0, 0($sp)                  # Get the direction off the stack
         addi $sp, $sp, 4
-        bne $a0, 1, END_UPDATE_DOODLE  # $a0 != 1 means we don't update
+        bne $a0, 1, END_UPDATE_DOODLE   # $a0 != 1 means we don't update
 
         # Update the doodle
         lw $t1, doodle_origin
@@ -429,15 +506,15 @@
         div $t2, $t4
         mflo $t2
 
-        addi $t4, $zero, 4
+        li $t4, 4
         div $t2, $t4
-        mflo $t4                # (doodle_origin) / 4 = K
+        mflo $t4                        # (doodle_origin) / 4 = K
 
         div $t4, $t3
         mfhi $t2                # K (mod) 64
 
-        li $t5, -1
         # First, figure out if we're going right or left.
+        li $t5, -1
         beq $t0, $t5, MOVE_LEFT
         j MOVE_RIGHT
 
@@ -477,34 +554,33 @@
 
         NORMAL_MOVEMENT:
             # General case for movement
-            addi $t2, $zero, 4
+            li $t2, 4
             mult $t0, $t2
             mflo $t0                # Offset (+/-4)
 
             # TODO: If we change the doodle_origin data structure, CHANGE the doodle boundary here.
             la $t2, doodle_origin
-            add $t1, $t1, $t0       # doodle_origin += offset
+            add $t1, $t1, $t0           # doodle_origin += offset
             sw $t1, 0($t2)
             j END_UPDATE_DOODLE
 
         END_UPDATE_DOODLE:
             jr $ra
 
+    # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
+    # from platform_arr and draw it using the colour on the stack.
     FUNCTION_DRAW_PLATFORM_LOOP:
-        # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
-        # from platform_arr and draw it using the colour on the stack.
-
         lw $t7, 0($sp)              # get the colour off the stack
         addi $sp, $sp, 4            # reset the stack pointer
 
         # Throughout FUNCTION_DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
-        add $s2, $zero, $zero
+        li $s2, 0
         la $t8, row_arr             # our array of row indexes
         la $t9, platform_arr        # our array of platform origins
 
         GET_PLATFORM:
             lw $t1, num_platforms   # loop condition
-            addi $t2, $zero, 4
+            li $t2, 4
             mult $t1, $t2
             mflo $t1                # $t1 = num_platforms * 4
 
@@ -512,9 +588,9 @@
             beq $s2, $t1, COMPLETE_PLATFORM
 
             # Draw the current platform from our array.
-            add $t2, $zero, $zero   # current block being drawn.
+            li $t2, 0   # current block being drawn.
             lw $t3, platform_width
-            addi $t4, $zero, 4
+            li $t4, 4
             mult $t3, $t4
             mflo $t3                # required for loop condition, 4*platform width
 
@@ -543,7 +619,7 @@
                 j DRAW_CURRENT_PLATFORM
 
             NEXT_PLATFORM:
-                # increment our index by 4
+                # increment our offset by 4
                 addi $s2, $s2, 4
                 j GET_PLATFORM
 
@@ -576,9 +652,695 @@
         add $v0, $zero, $t0
         jr $ra
 
+    #   Our main tool for drawing on the screen
+    #   Arguments:
+    #       - $a0 = colour
+    #       - $a1 = starting address
+    #       - $a2 = direction
+    #             0: right
+    #             1: up
+    #             2: left
+    #             3: down
+    #       - $a3 = number of blocks to draw (including base)
+    #
+    FUNCTION_DRAW_TOOL:
+        move $t0, $a0   # colour
+        move $t1, $a1   # Base address
+        move $t2, $a2   # direction
+        move $t3, $a3   # number of blocks to draw
+        li $t5, 0       # loop counter
+
+        # We will be using $s1 to store the delta value as we draw.
+        # Save it on the stack first.
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+        # First, if we got 0 or 2, go to draw horizontal.
+        # We check this first because the incrementor for
+        # L/R is identical up to the sign, and the same goes
+        # for moving U/D
+        li $t4, 2
+        div $t2, $t4
+        mfhi $t4
+
+        beq $t4, $zero, DRAW_HORIZONTAL
+
+        # Otherwise we're drawing vertically.
+        j DRAW_VERTICAL
+
+        DRAW_HORIZONTAL:
+            # Set our incrementor/decrementor
+            # Since we want to shift by columns, our delta is 4*i, where i is the index.
+            li $s1, 4
+
+            # If we're drawing left, flip the sign.
+            li $t4, 2
+            beq $t2, $t4, DRAW_LEFT
+
+            j DRAW_TOOL_LOOP
+
+            DRAW_LEFT:
+                # offset value decreases as we go left, make the delta negative
+                li $t4, -1
+                mult $s1, $t4
+                mflo $s1
+                j DRAW_TOOL_LOOP
+
+        DRAW_VERTICAL:
+            # Set our incrementor/decrementor
+            # Since we want to shift by rows, our delta is ROW_BELOW*i, where i is the index.
+            lw $s1, ROW_BELOW
+
+            # If we're drawing up, flip the sign.
+            li $t4, 1
+            beq $t2, $t4, DRAW_UP
+
+            j DRAW_TOOL_LOOP
+
+            DRAW_UP:
+                # offset value decreases as we go up, make the delta negative
+                li $t4, -1
+                mult $s1, $t4
+                mflo $s1
+                j DRAW_TOOL_LOOP
+
+        # Now that our delta is set up, we want to draw the requested line.
+        DRAW_TOOL_LOOP:
+            # If we've drawn the requested number of blocks, finish up.
+            beq $t5, $t3, FINISH_DRAWING
+
+            # We want to draw the block.
+            mult $t5, $s1       # $t5 is the counter, $s1 is the delta
+            mflo $t6
+            add $t6, $t6, $t1   # $t6 = offset in the display
+
+            sw $t0, 0($t6)      # draw the block the requested colour
+
+            # Increment the counter
+            addi $t5, $t5, 1
+
+            j DRAW_TOOL_LOOP
+
+        FINISH_DRAWING:
+            # Restore $s1
+            lw $s1, 0($sp)
+            addi $sp, $sp, 4
+
+            jr $ra
+
+    # Draws the score on the display.
+    # Args: $a0 = colour to draw.
+    FUNCTION_DRAW_SCORE:
+        # Because we have to call the draw tool function, we will lose our $ra
+        # Therefore, we need to store it on the stack.
+        addi $sp, $sp, -4
+        sw $ra, 0($sp)
+
+        # Going to use $s1 for the colour
+        # We will use the following callee saved registers:
+        #   $s1 = colour
+        #   $s2 = score_digits array
+        #   $s3 = loop counter
+        #   $s4 = top left corner of digit's 7 seg display
+        # Store these registers on the stack for preservation.
+        addi $sp $sp, -4
+        sw $s1, 0($sp)
+
+        addi $sp $sp, -4
+        sw $s2, 0($sp)
+
+        addi $sp $sp, -4
+        sw $s3, 0($sp)
+
+        addi $sp $sp, -4
+        sw $s4, 0($sp)
+
+        move $s1, $a0
+        la $s2, score_digits
+        li $s3, 0               # loop counter
+
+        DRAW_SCORE_LOOP:
+            lw $t1, score_length
+            beq $s3, $t1, FINISH_DRAWING_SCORE
+            li $t3, 4
+            mult $s3, $t3
+            mflo $t3
+
+            add $t3, $t3, $s2   # Offset in the score_digits array
+            lw $t3, 0($t3)      # $t3 = address of struct
+
+            # Get the value of the digit
+            lw $t4, 4($t3)
+
+            beq $t4, 0, DRAW_ZERO
+            beq $t4, 1, DRAW_ONE
+            beq $t4, 2, DRAW_TWO
+            beq $t4, 3, DRAW_THREE
+            beq $t4, 4, DRAW_FOUR
+            beq $t4, 5, DRAW_FIVE
+            beq $t4, 6, DRAW_SIX
+            beq $t4, 7, DRAW_SEVEN
+            beq $t4, 8, DRAW_EIGHT
+            beq $t4, 9, DRAW_NINE
+
+            DRAW_ZERO:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the top bar
+                move $a0, $s1     # colour
+                move $a1, $s4     # base
+                li $a2, 0       # go right
+                li $a3, 3       # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the left side
+
+                move $a0, $s1
+                move $a1, $s4
+                lw $t5, ROW_BELOW
+                add $a1, $a1, $t5   # base
+                li $a2, 3           # go down
+                li $a3, 4           # 4 blocks
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t5, ROW_BELOW
+                li $t6, 4
+                mult $t5, $t6
+                mflo $t5
+                addi $t5, $t5, 4
+                add $a1, $a1, $t5
+
+                li $a2, 0       # go right
+                li $a3, 2       # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the right bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t5, ROW_BELOW
+                li $t6, 8
+                add $t5, $t5, $t6
+                add $a1, $a1, $t5
+
+                li $a2, 3       # go down
+                li $a3, 3       # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_ONE:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_TWO:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw right square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                add $a1, $a1, $t2   # middle row
+                addi $a1, $a1, 8
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw left square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 3
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_THREE:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_FOUR:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the left side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                li $a2, 3           # go down
+                li $a3, 2           # draw 2 squares
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_FIVE:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw right square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 3
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                addi $a1, $a1, 8
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw left square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                add $a1, $a1, $t2   # middle row
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_SIX:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the left side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t2
+                addi $t2, $t2, 8
+                add $a1, $a1, $t2
+                li $a2, 3           # go down
+                li $a3, 2           # draw 2 squares
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_SEVEN:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_EIGHT:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the left side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                addi $a1, $a1, 4    # base is middle
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                addi $a1, $a1, 4
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                addi $a1, $a1, 4
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            DRAW_NINE:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the left side
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 3           # go down
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                j FINISH_DRAWING_DIGIT
+
+            FINISH_DRAWING_DIGIT:
+                # Increment loop counter.
+                addi $s3, $s3, 1
+                j DRAW_SCORE_LOOP
+
+        FINISH_DRAWING_SCORE:
+
+            # Restore $s registers.
+            lw $s4, 0($sp)
+            addi $sp $sp, 4
+            lw $s3, 0($sp)
+            addi $sp $sp, 4
+            lw $s2, 0($sp)
+            addi $sp $sp, 4
+            lw $s1, 0($sp)
+            addi $sp $sp, 4
+
+            # Restore $ra
+            lw $ra, 0($sp)
+            addi $sp, $sp, 4
+
+            jr $ra
+
+
+    # Update the players score, as well as the score_digits array and more.
+    FUNCTION_UPDATE_SCORE:
+        # First, we increment the score by 1.
+        la $t0, score
+
+        lw $t1, 0($t0)
+        addi $t1, $t1, 1
+        sw $t1, 0($t0)
+
+        # Next, we want to update the values in our digits array
+        li $t0, 0           # current index in array and the counter
+        lw $t2, score
+        li $t3, 10          # divisor to get last digit of score
+
+        # we're going to store the value of $s2 on the stack because I want to store the address
+        # of the score_digits array there.
+        addi $sp, $sp, -4
+        sw $s2, 0($sp)
+
+        la $s2, score_digits
+
+        # We want to access each digit of the score.
+        # While the result of division by 10 is non-zero,
+        # divide by 10 and check the remainder.
+        #
+        # We read digits back to front, so score_digits is reversed
+        SPLIT_SCORE_LOOP:
+            div $t2, $t3
+            mflo $t2            # quotient
+            mfhi $t4            # remainder (last digit)
+
+            li $t5, 4
+            mult $t0, $t5
+            mflo $t5
+
+            add $t5, $t5, $s2   # offset in array
+            lw $t6, 0($t5)      # $t6 = pointer to heap allocated struct base address
+
+            addi $t6, $t6, 4    # address of second property of this struct
+            sw $t4, 0($t6)      # update the value at this struct
+
+            # If we've read the last digit, we're done.
+            beq $t2, $zero, END_SCORE_UPDATE
+
+            # Otherwise, we have more digits to count.
+            addi $t0, $t0, 1
+            j SPLIT_SCORE_LOOP
+
+        END_SCORE_UPDATE:
+            # reset the value of $s2
+            lw $s2, 0($sp)
+            addi $sp, $sp, 4
+
+            la $t1, score_length
+            addi $t0, $t0, 1
+            sw $t0, 0($t1)      # update the number of digits in the score.
+            jr $ra
+
     # the doodle has hit max height and so we have to move the platforms down.
     UPDATE_PLATFORMS:
-        add $s3, $zero, $zero   # $s3 will be our loop counter, we loop 10x
+        # Erase the current score
+        lw $a0, background
+        jal FUNCTION_DRAW_SCORE
+        # Update the game score.
+        jal FUNCTION_UPDATE_SCORE
+
+        lw $a0, score_colour
+        jal FUNCTION_DRAW_SCORE
+
+        li $s3, 0           # $s3 will be our loop counter, we loop 10x
 
         # We also check if the doodle has moved while moving the map.
         MOVE_PLATFORMS:
@@ -623,7 +1385,7 @@
             jal FUNCTION_DRAW_DOODLE
 
             # 2. Calculate the new positions
-            add $t0, $zero, $zero
+            li $t0, 0
             la $t8, row_arr
             la $t9, platform_arr
 
@@ -640,7 +1402,7 @@
                 # while i < # platforms
                 beq $t0, $t1, CHECK_PLATFORM_OVERFLOW
 
-                add $t2, $zero, 4
+                li $t2, 4
                 mult $t0, $t2
                 mflo $t2            # current offset (0, 4, 8, etc)
 
@@ -769,6 +1531,10 @@
                 sw $t0, 0($sp)
                 jal FUNCTION_DRAW_PLATFORM_LOOP
 
+                # A platform may have come down through the score so we have to redraw it.
+                lw $a0, score_colour
+                jal FUNCTION_DRAW_SCORE
+
                 # Now that we finished drawing the new platforms, go back to the main loop
                 # to see if any work is left.
                 j MOVE_PLATFORMS
@@ -794,7 +1560,7 @@
         # First, we want to determine if we're 1 row above the platform
         la $t8, row_arr
         lw $t0, candidate_platform
-        addi $t1, $zero, 4
+        li $t1, 4
         mult $t0, $t1
         mflo $t0
         add $t4, $t0, $t8   # $t4 = addr(row_arr[candidate_platform])
@@ -837,7 +1603,7 @@
             la $t8, row_arr
             la $t9, platform_arr
             lw $t0, candidate_platform
-            addi $t1, $zero, 4
+            li $t1, 4
             mult $t0, $t1
             mflo $t0
             add $t4, $t0, $t9       # $t4 = addr(platform_arr[candidate_platform])
@@ -895,20 +1661,20 @@
     FALL:
         jal FUNCTION_COLLISION_DETECTION
         add $s4, $zero, $v0        # 1 if collision occured, 0 if no platform nearby, -1 if fell past platform.
-        addi $t1, $zero, 1
+        li $t1, 1
 
         beq $s4, $t1, JUMP
 
         # We're falling at this point, deal with it.
         # First, lets check if we fell past the platform, since it could mean game over.
-        addi $t1, $zero, -1
+        li $t1, -1
         beq $s4, $t1, DECREMENT_CANDIDATE_PLATFORM
         j HANDLE_FALL
 
         DECREMENT_CANDIDATE_PLATFORM:
             # if this is the bottom platform, get ready to end the game.
             lw $t0, candidate_platform
-            add $t1, $zero, $zero   # unnecessary, but just to be safe.
+            li $t1, 0           # unnecessary, but just to be safe.
             beq $t0, $t1, PREPARE_END_GAME
 
             # Otherwise, just decrement the candidate_platform
@@ -918,7 +1684,7 @@
             j HANDLE_FALL
 
         PREPARE_END_GAME:
-            addi $s5, $zero, 5           # $s5 == -1 then we will end the game after the next drawing.
+            li $s5, 5           # $s5 == -1 then we will end the game after the next drawing.
             j HANDLE_FALL
 
 
@@ -955,7 +1721,7 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
-            addi $t0, $zero, 5
+            li $t0, 5
             beq $s5, $t0, GAME_END  # If we fell past the last platform, end the game.
 
             # Redraw platform
@@ -969,10 +1735,14 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_PLATFORM_LOOP
 
+            # Redraw the score because the platform may have overwritten it.
+            lw $a0, score_colour
+            jal FUNCTION_DRAW_SCORE
+
             j FALL
 
     JUMP:
-        add $s1, $zero, $zero       # $s1 will be our counter that lets us know how many more times we have to move the doodle up
+        li $s1, 0                   # $s1 will be our counter that lets us know how many more times we have to move the doodle up
         la $t8, row_arr
 
         BOUNCE_LOOP:
@@ -1039,7 +1809,7 @@
             # Next, we need to look into updating the candidate_platform variable.
             lw $t0, candidate_platform
             # If we're 1 row above row_arr[candidate_platform + 1], we need to update candidate_platform
-            addi $t2, $zero, 4
+            li $t2, 4
             mult $t0, $t2
             mflo $t0
             addi $t0, $t0, 4
@@ -1090,6 +1860,11 @@ GAME_END:
 
     li $a0, 0x000000            # make the screen black
     jal FUNCTION_DRAW_BACKGROUND
+
+    # Print the score
+    li $v0 1
+    lw $a0, score
+    syscall
 
     li $v0, 10 		# terminate the program gracefully
     syscall
