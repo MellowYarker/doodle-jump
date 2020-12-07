@@ -855,7 +855,6 @@
                 j FINISH_DRAWING_DIGIT
 
             DRAW_ONE:
-
                 lw $s4, 0($t3)  # base address of the 7-seg display
                 # Draw the right side
                 move $a0, $s1       # colour
@@ -872,24 +871,264 @@
                 j FINISH_DRAWING_DIGIT
 
             DRAW_THREE:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
                 j FINISH_DRAWING_DIGIT
 
             DRAW_FOUR:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the left side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                li $a2, 3           # go down
+                li $a3, 2           # draw 2 squares
+                jal FUNCTION_DRAW_TOOL
+
                 j FINISH_DRAWING_DIGIT
 
             DRAW_FIVE:
                 j FINISH_DRAWING_DIGIT
 
             DRAW_SIX:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the left side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t2
+                addi $t2, $t2, 8
+                add $a1, $a1, $t2
+                li $a2, 3           # go down
+                li $a3, 2           # draw 2 squares
+                jal FUNCTION_DRAW_TOOL
+
                 j FINISH_DRAWING_DIGIT
 
             DRAW_SEVEN:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
                 j FINISH_DRAWING_DIGIT
 
             DRAW_EIGHT:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the left side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                addi $a1, $a1, 4    # base is middle
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                addi $a1, $a1, 4
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                addi $a1, $a1, 4
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
                 j FINISH_DRAWING_DIGIT
 
             DRAW_NINE:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the right side
+                move $a0, $s1       # colour
+                move $a1, $s4       # base
+                addi $a1, $a1, 8    # top right side
+                li $a2, 3           # go down
+                li $a3, 5           # draw 5 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the left side
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 3           # go down
+                li $a3, 2           # draw 2 squares
+
+                jal FUNCTION_DRAW_TOOL
+
                 j FINISH_DRAWING_DIGIT
 
             FINISH_DRAWING_DIGIT:
