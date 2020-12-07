@@ -1861,10 +1861,49 @@ GAME_END:
     li $a0, 0x000000            # make the screen black
     jal FUNCTION_DRAW_BACKGROUND
 
-    # Print the score
-    li $v0 1
-    lw $a0, score
-    syscall
+    # Move the score position to the centre of the screen
+    la $t0, score_digits
+    lw $t1, score_length
+    li $t2, 0
+
+    REPOSITION_SCORE:
+        beq $t2, $t1, DISPLAY_END_SCREEN
+        li $t3, 4
+        mult $t2, $t3
+        mflo $t3
+
+        add $t3, $t3, $t0
+        lw $t4, 0($t3)
+        lw $t5, 0($t4)
+        addi $t5, $t5, -112
+        sw $t5, 0($t4)
+
+        addi $t2, $t2, 1
+        j REPOSITION_SCORE
+
+    DISPLAY_END_SCREEN:
+        # Display the final score
+        li $a0, 0xffffff
+        jal FUNCTION_DRAW_SCORE
+    RETRY:
+        # Wait for the signal "s" to restart the game.
+        jal FUNCTION_READ_KEYBOARD_INPUT
+        add $t0, $zero, $v0
+        li $t1, 2
+        beq $t0, $t1, RESET_GAME
+        j RETRY
+
+    RESET_GAME:
+        # Clear the score.
+        la $t0, score
+        la $t1, score_length
+
+        li $t2, 0
+        sw $t2, 0($t0)
+
+        addi $t2, $t2, 1
+        sw $t2, 0($t1)
+        j MAIN
 
     li $v0, 10 		# terminate the program gracefully
     syscall
