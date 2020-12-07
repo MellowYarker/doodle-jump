@@ -747,7 +747,6 @@
 
             jr $ra
 
-    # TODO: complete this.
     # Draws the score on the display.
     # Args: $a0 = colour to draw.
     FUNCTION_DRAW_SCORE:
@@ -868,6 +867,65 @@
                 j FINISH_DRAWING_DIGIT
 
             DRAW_TWO:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw right square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                add $a1, $a1, $t2   # middle row
+                addi $a1, $a1, 8
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw left square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 3
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
                 j FINISH_DRAWING_DIGIT
 
             DRAW_THREE:
@@ -950,6 +1008,64 @@
                 j FINISH_DRAWING_DIGIT
 
             DRAW_FIVE:
+                lw $s4, 0($t3)  # base address of the 7-seg display
+                # Draw the top bar
+                move $a0, $s1
+                move $a1, $s4
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the middle bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 2
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw the bottom bar
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 4
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                li $a2, 0           # go right
+                li $a3, 3           # draw 3 squares
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw right square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                li $t1, 3
+                mult $t1, $t2
+                mflo $t1
+                add $a1, $a1, $t1   # middle row
+                addi $a1, $a1, 8
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
+
+                # Draw left square
+                move $a0, $s1
+                move $a1, $s4
+                lw $t2, ROW_BELOW
+                add $a1, $a1, $t2   # middle row
+                li $a2, 0           # go right
+                li $a3, 1           # draw 1 square
+
+                jal FUNCTION_DRAW_TOOL
                 j FINISH_DRAWING_DIGIT
 
             DRAW_SIX:
@@ -1415,6 +1531,10 @@
                 sw $t0, 0($sp)
                 jal FUNCTION_DRAW_PLATFORM_LOOP
 
+                # A platform may have come down through the score so we have to redraw it.
+                lw $a0, score_colour
+                jal FUNCTION_DRAW_SCORE
+
                 # Now that we finished drawing the new platforms, go back to the main loop
                 # to see if any work is left.
                 j MOVE_PLATFORMS
@@ -1614,6 +1734,10 @@
             addi $sp, $sp, -4
             sw $t0, ($sp)
             jal FUNCTION_DRAW_PLATFORM_LOOP
+
+            # Redraw the score because the platform may have overwritten it.
+            lw $a0, score_colour
+            jal FUNCTION_DRAW_SCORE
 
             j FALL
 
