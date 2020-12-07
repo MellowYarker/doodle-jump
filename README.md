@@ -16,5 +16,8 @@ I will update this page as is necessary to reflect the state of the code.
 -   Randomize the platform locations.
 -   Start game when player presses *s* key.
 -   End the game when the doodle falls into an invalid area.
-- [ ] Milestone 4
+- [x] Milestone 4
+-   Upgrade to 512x512 display
+-   Add score counter to display
+-   Add game over/retry at end game
 - [ ] Milestone 5
