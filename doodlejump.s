@@ -747,6 +747,312 @@
 
             jr $ra
 
+    # Draw "Retry s" on the screen.
+    FUNCTION_DRAW_RETRY:
+
+        # We'll be nesting funcs, so store $ra
+        addi $sp, $sp, -4
+        sw $ra, 0($sp)
+
+        # $s2 = colour
+        # $s3 = add to base addr
+        # $s4 = base addr
+        addi $sp, $sp, -4
+        sw $s2, 0($sp)
+
+        addi $sp, $sp, -4
+        sw $s3, 0($sp)
+
+        addi $sp, $sp, -4
+        sw $s4, 0($sp)
+
+        li $s2, 0xffffff    # colour white
+        li $s4, 8272        # top left of R (20th col, 32nd row)
+        add $s4, $s4, $s0
+        li $s3, 20
+
+        # Draw R
+        # Left side
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 3       # go down
+        li $a3, 5       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # top bar
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 0       # go right
+        li $a3, 2       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # middle bar
+        move $a0, $s2
+        move $a1, $s4
+
+        lw $t2, ROW_BELOW
+        li $t3, 2
+        mult $t2, $t3
+        mflo $t2
+        add $a1, $a1, $t2   # base
+
+        li $a2, 0       # go right
+        li $a3, 3       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # inner right
+        move $a0, $s2
+        move $a1, $s4
+
+        addi $a1, $a1, 8  # base
+
+        li $a2, 3       # go down
+        li $a3, 4       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # outer right
+        move $a0, $s2
+        move $a1, $s4
+
+        lw $t2, ROW_BELOW
+        li $t3, 3
+        mult $t2, $t3
+        mflo $t2
+        add $a1, $a1, $t2   # base
+        addi $a1, $a1, 12  # base
+
+        li $a2, 3       # go down
+        li $a3, 2       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw E
+        add $s4, $s4, $s3
+
+        # Left col
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 3       # go down
+        li $a3, 5       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Top bar
+        move $a0, $s2
+        move $a1, $s4
+
+        li $a2, 0       # go down
+        li $a3, 3       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # middle bar
+        move $a0, $s2
+        move $a1, $s4
+
+        lw $t2, ROW_BELOW
+        li $t3, 2
+        mult $t2, $t3
+        mflo $t2
+        add $a1, $a1, $t2   # base
+
+        li $a2, 0       # go right
+        li $a3, 2       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # bottom bar
+        move $a0, $s2
+        move $a1, $s4
+
+        lw $t2, ROW_BELOW
+        li $t3, 4
+        mult $t2, $t3
+        mflo $t2
+        add $a1, $a1, $t2   # base
+
+        li $a2, 0       # go right
+        li $a3, 3       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw T
+        add $s4, $s4, $s3
+        addi $s4, $s4, -4
+
+        # Top bar
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 0       # go right
+        li $a3, 5       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # middle Column
+        move $a0, $s2
+        move $a1, $s4
+
+        lw $t2, ROW_BELOW
+        add $a1, $a1, $t2   # base
+        addi $a1, $a1, 8
+
+        li $a2, 3       # go down
+        li $a3, 4       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw second R
+        add $s4, $s4, $s3
+        addi $s4, $s4, 4
+
+        # Left side
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 3       # go down
+        li $a3, 5       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # top bar
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 0       # go right
+        li $a3, 2       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # middle bar
+        move $a0, $s2
+        move $a1, $s4
+
+        lw $t2, ROW_BELOW
+        li $t3, 2
+        mult $t2, $t3
+        mflo $t2
+        add $a1, $a1, $t2   # base
+
+        li $a2, 0       # go right
+        li $a3, 3       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # inner right
+        move $a0, $s2
+        move $a1, $s4
+
+        addi $a1, $a1, 8  # base
+
+        li $a2, 3       # go down
+        li $a3, 4       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # outer right
+        move $a0, $s2
+        move $a1, $s4
+
+        lw $t2, ROW_BELOW
+        li $t3, 3
+        mult $t2, $t3
+        mflo $t2
+        add $a1, $a1, $t2   # base
+        addi $a1, $a1, 12  # base
+
+        li $a2, 3       # go down
+        li $a3, 2       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw Y
+        add $s4, $s4, $s3
+
+        # left col
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 3       # go down
+        li $a3, 2       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # right col
+        move $a0, $s2
+        move $a1, $s4
+        addi $a1, $a1, 8    # base
+        li $a2, 3       # go down
+        li $a3, 2       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # centre column
+        move $a0, $s2
+        move $a1, $s4
+        lw $t2, ROW_BELOW
+        add $a1, $a1, $t2   # base
+        addi $a1, $a1, 4    # base
+        li $a2, 3       # go down
+        li $a3, 4       # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+
+        # Draw "s"
+        # Centre of screen
+        li $s4, 10360       # 10360 = col 30, row 40
+        add $s4, $s4, $s0   # base of display
+
+        # Draw the top bar
+        move $a0, $s2
+        move $a1, $s4
+        li $a2, 0           # go right
+        li $a3, 3           # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw the middle bar
+        move $a0, $s2
+        move $a1, $s4
+        lw $t2, ROW_BELOW
+        li $t1, 2
+        mult $t1, $t2
+        mflo $t1
+        add $a1, $a1, $t1   # middle row
+        li $a2, 0           # go right
+        li $a3, 3           # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw the bottom bar
+        move $a0, $s2
+        move $a1, $s4
+        lw $t2, ROW_BELOW
+        li $t1, 4
+        mult $t1, $t2
+        mflo $t1
+        add $a1, $a1, $t1   # middle row
+        li $a2, 0           # go right
+        li $a3, 3           # draw 3 squares
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw right square
+        move $a0, $s2
+        move $a1, $s4
+        lw $t2, ROW_BELOW
+        li $t1, 3
+        mult $t1, $t2
+        mflo $t1
+        add $a1, $a1, $t1   # middle row
+        addi $a1, $a1, 8
+        li $a2, 0           # go right
+        li $a3, 1           # draw 1 square
+        jal FUNCTION_DRAW_TOOL
+
+        # Draw left square
+        move $a0, $s2
+        move $a1, $s4
+        lw $t2, ROW_BELOW
+        add $a1, $a1, $t2   # middle row
+        li $a2, 0           # go right
+        li $a3, 1           # draw 1 square
+        jal FUNCTION_DRAW_TOOL
+
+        # Restore callee saved reg's
+        lw $s4, 0($sp)
+        addi $sp, $sp, 4
+
+        lw $s3, 0($sp)
+        addi $sp, $sp, 4
+
+        lw $s2, 0($sp)
+        addi $sp, $sp, 4
+
+        # Get our $ra back
+        lw $ra, 0($sp)
+        addi $sp, $sp, 4
+        jr $ra
+
     # Draws the score on the display.
     # Args: $a0 = colour to draw.
     FUNCTION_DRAW_SCORE:
@@ -1861,10 +2167,50 @@ GAME_END:
     li $a0, 0x000000            # make the screen black
     jal FUNCTION_DRAW_BACKGROUND
 
-    # Print the score
-    li $v0 1
-    lw $a0, score
-    syscall
+    # Move the score position to the centre of the screen
+    la $t0, score_digits
+    lw $t1, score_length
+    li $t2, 0
+
+    REPOSITION_SCORE:
+        beq $t2, $t1, DISPLAY_END_SCREEN
+        li $t3, 4
+        mult $t2, $t3
+        mflo $t3
+
+        add $t3, $t3, $t0
+        lw $t4, 0($t3)
+        lw $t5, 0($t4)
+        addi $t5, $t5, -112
+        sw $t5, 0($t4)
+
+        addi $t2, $t2, 1
+        j REPOSITION_SCORE
+
+    DISPLAY_END_SCREEN:
+        # Display the final score
+        li $a0, 0xffffff
+        jal FUNCTION_DRAW_SCORE
+        jal FUNCTION_DRAW_RETRY
+    RETRY:
+        # Wait for the signal "s" to restart the game.
+        jal FUNCTION_READ_KEYBOARD_INPUT
+        add $t0, $zero, $v0
+        li $t1, 2
+        beq $t0, $t1, RESET_GAME
+        j RETRY
+
+    RESET_GAME:
+        # Clear the score.
+        la $t0, score
+        la $t1, score_length
+
+        li $t2, 0
+        sw $t2, 0($t0)
+
+        addi $t2, $t2, 1
+        sw $t2, 0($t1)
+        j MAIN
 
     li $v0, 10 		# terminate the program gracefully
     syscall
