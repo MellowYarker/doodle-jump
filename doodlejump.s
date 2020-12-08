@@ -780,6 +780,8 @@
         la $t2, platform_type
         add $t2, $t2, $t0   # address of last element in the array
 
+        lw $t2, 0($t2)      # address of the struct
+
         # contact = 0
         li $t1, 0
         sw $t1, 4($t2)
@@ -1984,6 +1986,14 @@
                     lw $t0, 0($t5)      # $t0 = platform_arr[i + 1]
                     sw $t0, 0($t4)      # platform_arr[i] = $t0
 
+                    # update platform_type
+                    la $t4, platform_type
+                    add $t3, $t3, $t4   # offset into platform_type
+                    addi $t5, $t3, 4    # offset + 4 is the next platform
+
+                    lw $t0, 0($t5)      # $t0 = platform_type[i + 1]
+                    sw $t0, 0($t3)      # platform_type[i] = $t0
+
                     addi $t1, $t1, 1    # increment counter.
                     j SWAP_PLATFORMS_LOOP
 
@@ -2028,8 +2038,20 @@
                     sw $t1, 0($sp)
                     lw $a0, platform_width
 
+                    # generate the platforms location
                     jal FUNCTION_GENERATE_RANDOM_PLATFORM
                     add $t0, $zero, $v0
+
+                    # store $t0
+                    addi $sp, $sp, -4
+                    sw $t0, 0($sp)
+
+                    # generate the type of platform
+                    jal FUNCTION_GENERATE_PLATFORM_TYPE
+
+                    # Pop the old $t0 value off the stack
+                    lw $t0, 0($sp)
+                    addi $sp, $sp, 4
 
                     # Pop the old $t1 value off the stack
                     lw $t1, 0($sp)
@@ -2074,7 +2096,12 @@
     # Returns:
     #    0 if no collision
     #    1 if collision detected
+    #    2 if collision detected on special platform
     #   -1 if we fell past the candidate platform
+    # Mutates:
+    #   if there's a collision and the candidate platform is a special platform
+    #       - i.e platform types 1 (disappearing) and 3 (shifting)
+    #   then we set platform_arr[candidate_platform]->contact = 1
     FUNCTION_COLLISION_DETECTION:
         # First, we want to determine if we're 1 row above the platform
         la $t8, row_arr
@@ -2166,8 +2193,30 @@
                 j FELL_PAST_PLATFORM
 
         COLLISION:
+            # Check if this is a type 1 or 3 platform
+            la $t1, platform_type
+            li $t2, 4
+            lw $t0, candidate_platform
+            mult $t0, $t2
+            mflo $t2            # offset
+
+            add $t1, $t1, $t2   # address of candidate_platform in platform_type array
+            lw $t2, 0($t1)      # address of the struct belonging to this candidate_platform
+
+            lw $t1, 0($t2)      # platform_type[candidate_platform]->type
+            beq $t1, 1, SPECIAL_COLLISION
+            beq $t1, 3, SPECIAL_COLLISION
+
+            # normal collision
             li $v0, 1
             jr $ra
+
+            SPECIAL_COLLISION:
+                # We want to set platform_type[candidate_platform]->contact = 1
+                li $t1, 1
+                sw $t1, 4($t2)
+                li $v0, 2
+                jr $ra
 
         NO_COLLISION:
             li $v0, 0
