@@ -27,7 +27,7 @@
 #####################################################################
 .data
     # ---Timers---
-    jump_sleep_time:    .word 80               # ms to sleep between drawing
+    jump_sleep_time:    .word 40               # ms to sleep between drawing
     platform_sleep:     .word 10
 
     # ---Colours---
@@ -1965,96 +1965,216 @@
             jr $ra
 
     FALL:
-        jal FUNCTION_COLLISION_DETECTION
-        add $s4, $zero, $v0        # 1 if collision occured, 0 if no platform nearby, -1 if fell past platform.
-        li $t1, 1
+        li $s6, 0       # number of rows we've fallen so far
+        FALL_LOOP:
+            jal FUNCTION_COLLISION_DETECTION
+            add $s4, $zero, $v0        # 1 if collision occured, 0 if no platform nearby, -1 if fell past platform.
+            li $t1, 1
 
-        beq $s4, $t1, JUMP
+            beq $s4, $t1, JUMP
 
-        # We're falling at this point, deal with it.
-        # First, lets check if we fell past the platform, since it could mean game over.
-        li $t1, -1
-        beq $s4, $t1, DECREMENT_CANDIDATE_PLATFORM
-        j HANDLE_FALL
-
-        DECREMENT_CANDIDATE_PLATFORM:
-            # if this is the bottom platform, get ready to end the game.
-            lw $t0, candidate_platform
-            li $t1, 0           # unnecessary, but just to be safe.
-            beq $t0, $t1, PREPARE_END_GAME
-
-            # Otherwise, just decrement the candidate_platform
-            addi $t0, $t0, -1
-            la $t1, candidate_platform
-            sw $t0, 0($t1)
+            # We're falling at this point, deal with it.
+            # First, lets check if we fell past the platform, since it could mean game over.
+            li $t1, -1
+            beq $s4, $t1, DECREMENT_CANDIDATE_PLATFORM
             j HANDLE_FALL
 
-        PREPARE_END_GAME:
-            li $s5, 5           # $s5 == -1 then we will end the game after the next drawing.
-            j HANDLE_FALL
+            DECREMENT_CANDIDATE_PLATFORM:
+                # if this is the bottom platform, get ready to end the game.
+                lw $t0, candidate_platform
+                li $t1, 0           # unnecessary, but just to be safe.
+                beq $t0, $t1, PREPARE_END_GAME
+
+                # Otherwise, just decrement the candidate_platform
+                addi $t0, $t0, -1
+                la $t1, candidate_platform
+                sw $t0, 0($t1)
+                j HANDLE_FALL
+
+            PREPARE_END_GAME:
+                li $s5, 5           # $s5 == -1 then we will end the game after the next drawing.
+                j HANDLE_FALL
 
 
-        HANDLE_FALL:
-            # add a small sleep.
-            li $v0, 32
-            lw $a0, jump_sleep_time
-            syscall
+            HANDLE_FALL:
+                # Get the velocity according to doodle physics
+                move $a0, $s6
+                li $a1, -1
 
-            # First, we erase our doodle, then redraw.
-            lw $t0, background
-            addi $sp, $sp, -4
-            sw $t0, ($sp)
-            jal FUNCTION_DRAW_DOODLE
+                jal FUNCTION_PHYSICS
+                move $a0, $v0
 
-            # Check if the player wants to move the doodle.
-            jal FUNCTION_READ_KEYBOARD_INPUT
-            add $a0, $zero, $v0
-            add $t1, $zero, $v1
-            addi $sp, $sp, -4
-            sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
-            jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
+                li $v0, 32
+                syscall
 
-            # We need to send our friend the doodle down 1 row.
-            la $t2, doodle_origin
-            lw $t1, 0($t2)
-            lw $t3, ROW_BELOW
-            add $t1, $t1, $t3       # doodle position - 1 row
-            sw $t1, 0($t2)          # update doodle_origin
+                # First, we erase our doodle, then redraw.
+                lw $t0, background
+                addi $sp, $sp, -4
+                sw $t0, ($sp)
+                jal FUNCTION_DRAW_DOODLE
 
-            # Draw the doodle in the new position.
-            lw $t0, doodle_colour
-            addi $sp, $sp, -4
-            sw $t0, ($sp)
-            jal FUNCTION_DRAW_DOODLE
+                # Check if the player wants to move the doodle.
+                jal FUNCTION_READ_KEYBOARD_INPUT
+                add $a0, $zero, $v0
+                add $t1, $zero, $v1
+                addi $sp, $sp, -4
+                sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
+                jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
 
-            li $t0, 5
-            beq $s5, $t0, GAME_END  # If we fell past the last platform, end the game.
+                # We need to send our friend the doodle down 1 row.
+                la $t2, doodle_origin
+                lw $t1, 0($t2)
+                lw $t3, ROW_BELOW
+                add $t1, $t1, $t3       # doodle position - 1 row
+                sw $t1, 0($t2)          # update doodle_origin
 
-            # Redraw platform
-            # TODO: When we move the map (doodle hit max height), the doodle may be "inside"
-            #       the top platform. Therefore, when it falls, as we erase it, we erase
-            #       the platform as well, so we're taking this into account by redrawing it here.
-            # There has to be a more efficient way to do this, I don't want to draw in a bunch of edge
-            # cases, it's adding complexity.
-            lw $t0, platform_colour
-            addi $sp, $sp, -4
-            sw $t0, ($sp)
-            jal FUNCTION_DRAW_PLATFORM_LOOP
+                # Draw the doodle in the new position.
+                lw $t0, doodle_colour
+                addi $sp, $sp, -4
+                sw $t0, ($sp)
+                jal FUNCTION_DRAW_DOODLE
 
-            # Redraw the score because the platform may have overwritten it.
-            lw $a0, score_colour
-            jal FUNCTION_DRAW_SCORE
+                li $t0, 5
+                beq $s5, $t0, GAME_END  # If we fell past the last platform, end the game.
 
-            j FALL
+                # Redraw platform
+                # TODO: When we move the map (doodle hit max height), the doodle may be "inside"
+                #       the top platform. Therefore, when it falls, as we erase it, we erase
+                #       the platform as well, so we're taking this into account by redrawing it here.
+                # There has to be a more efficient way to do this, I don't want to draw in a bunch of edge
+                # cases, it's adding complexity.
+                lw $t0, platform_colour
+                addi $sp, $sp, -4
+                sw $t0, ($sp)
+                jal FUNCTION_DRAW_PLATFORM_LOOP
+
+                # Redraw the score because the platform may have overwritten it.
+                lw $a0, score_colour
+                jal FUNCTION_DRAW_SCORE
+
+                addi $s6, $s6, 1
+                j FALL_LOOP
+
+    # Args: $a0 = index of jump
+    #       $a1 = direction
+    FUNCTION_PHYSICS:
+        # Save registers $s1, $s2, $s3
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+
+        addi $sp, $sp, -4
+        sw $s2, 0($sp)
+
+        addi $sp, $sp, -4
+        sw $s3, 0($sp)
+
+        move $s1, $a0
+        move $s2, $a1
+
+        beq $s2, 1, JUMP_PHYSICS
+
+        # If we've fallen more than 24 rows, our speed will no longer change
+        li $s3, 24
+        sub $s3, $s1, $s3
+
+        bgtz $s3, TERMINAL_VELOCITY
+        j FALL_PHYSICS
+
+        JUMP_PHYSICS:
+            # If 0<= x <= 20 go to PARABOLIC_ASCENT
+            li $s3, 20
+            sub $s3, $s3, $s1
+            bgtz, $s3, PARABOLIC_ASCENT
+            j LINEAR_ASCENT
+
+            # If 0 <= x <= 20
+            # f(x) = 40 + (x^2)/20
+            PARABOLIC_ASCENT:
+                mult $s1, $s1
+                mflo $s1
+
+                li $s3, 20
+                div $s1, $s3
+                mflo $s1
+
+                addi $s1, $s1, 40
+
+                move $v0, $s1
+                j FINALIZE_PHYSICS
+
+            # If 20 < x <= 24
+            # f(x) = 30(x - 20) + 60
+            LINEAR_ASCENT:
+                addi $s1, $s1, -20
+
+                li $s3, 30
+                mult $s1, $s3
+                mflo $s1
+
+                addi $s1, $s1, 60
+
+                move $v0, $s1
+                j FINALIZE_PHYSICS
+
+        FALL_PHYSICS:
+            # If 0 <= x <= 4 go to LINEAR_DESCENT
+            li $s3, 4
+            sub $s3, $s3, $s1
+            bgtz, $s3, LINEAR_DESCENT
+            j PARABOLIC_DESCENT
+
+            # 4 < x <= 24
+            # f(x) = 40 + ((x-24)^2)/20
+            PARABOLIC_DESCENT:
+                addi $s1, $s1, -24
+                mult $s1, $s1
+                mflo $s1
+                li $s3, 20
+                div $s1, $s3
+                mflo $s1
+
+                addi $s1, $s1, 40
+                move $v0, $s1
+                j FINALIZE_PHYSICS
+
+            # 0 <=x <= 4
+            # f(x) = -30(x) + 180
+            LINEAR_DESCENT:
+                li $s3, -30
+                mult $s1, $s3
+                mflo $s1
+                addi $s1,$s1, 180
+                move $v0, $s1
+                j FINALIZE_PHYSICS
+
+        # Can't go any faster
+        TERMINAL_VELOCITY:
+            lw $v0, jump_sleep_time
+            j FINALIZE_PHYSICS
+
+        FINALIZE_PHYSICS:
+            # Restore our registers
+            lw $s3, 0($sp)
+            addi $sp, $sp, 4
+            lw $s2, 0($sp)
+            addi $sp, $sp, 4
+            lw $s1, 0($sp)
+            addi $sp, $sp, 4
+
+            jr $ra
 
     JUMP:
         li $s1, 0                   # $s1 will be our counter that lets us know how many more times we have to move the doodle up
         la $t8, row_arr
 
         BOUNCE_LOOP:
-            # add a small sleep.
+            # Get the velocity according to doodle physics
+            move $a0, $s1
+            li $a1, 1
+            jal FUNCTION_PHYSICS
+
+            move $a0, $v0
             li $v0, 32
-            lw $a0, jump_sleep_time
             syscall
 
             lw $t0, bounce_height   # highest we can jump
