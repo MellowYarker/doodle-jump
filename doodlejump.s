@@ -28,13 +28,16 @@
 .data
     # ---Timers---
     jump_sleep_time:    .word 40               # ms to sleep between drawing
-    platform_sleep:     .word 10
+    platform_sleep:     .word 20
 
     # ---Colours---
-    background:         .word 0xDAEAFC         # Background colour of the display
-    doodle_colour:      .word 0xF9C09F
-    platform_colour:    .word 0x00ff00
-    score_colour:       .word 0x000000
+    background:                     .word 0xDAEAFC      # Background colour of the display
+    doodle_colour:                  .word 0xF9C09F
+    normal_platform_colour:         .word 0x00ff00      # green
+    disappearing_platform_colour:   .word 0xF2F2F2      # white-ish
+    moving_platform_colour:         .word 0x80BFFF      # blue-ish
+    shifting_platform_colour:       .word 0xFFD966      # yellow-ish
+    score_colour:                   .word 0x000000
 
     # ---IO Addresses---
     displayAddress:     .word 0x10008000
@@ -46,24 +49,28 @@
     display_width:      .word 512
 
     platform_width:     .word 12
-    #num_platforms:      .word 3
     num_platforms:      .word 4
-    #platform_distance:  .word 20                # vertical distance between platforms
     platform_distance:  .word 18                # vertical distance between platforms
 
     ROW_WIDTH:          .word 252               # This is for a 512 x 512 display.
     ROW_BELOW:          .word 256               # same column, one row below
 
-    # ---Array of 3 platforms---
-    #   - in both platform_arr and row_arr, the first entry is the bottom platform.
-    #   - platform_arr stores the leftmost column index (col * 4, col in [0, 31-platform_width])
-    #   - row_arr stores the row index (row*128, row in [0, 31])
-    #       - we pick 128 because that's the index of the first block after the 1st row
-    #platform_arr:       .word 0:3
-    #row_arr:            .word 16128, 11008, 5888    # Store the row_indexes of each platform. Add these to displayAddress.
+    # ---Array of 4 platforms---
+    #   - The following arrays store the bottom platform in the first index
+    #   - *platform_arr* stores the leftmost column index (col * 4, col in [0, (display_width/block_size -1)-platform_width])
+    #   - *row_arr* stores the row index (row*ROW_BELOW, row in [0, (display_width/block_size -1)])
+    #   - *platform_type* stores pointers to structs of the following type:
+    #
+    #   struct platform {
+    #       int type;       //  0 = normal, 1 = disappearing, 2 = moving, 3 = shifting
+    #       int contact;    //  0 = no contact made, 1 = contact made. Used by type 1 and 3 platforms.
+    #       int direction;  // -1 = left, 1 = right. Used by type 2 platforms.
+    #   }
+    #  These structs are stored on the heap and occupy 3 words, i.e 12 bytes.
 
     platform_arr:       .word 0:4
     row_arr:            .word 16128, 11520, 6912, 2304    # Store the row_indexes of each platform. Add these to displayAddress.
+    platform_type:      .word 0:4
 
     # ---Doodle Character---
     #   - We will only store the bottom left of the doodle, the rest can easily be calculated on the fly.
@@ -161,6 +168,9 @@
             addi $sp, $sp, 4
             jr $ra
 
+    # TODO: we want to allocate num_platforms structs as defined in the .data section.
+    FUNCTION_ALLOCATE_PLATFORM_TYPES:
+
     # argument: $a0 = colour
     FUNCTION_DRAW_BACKGROUND:
         add $t0, $zero, $a0
@@ -244,7 +254,7 @@
 
         DRAW_STARTING_PLATFORMS:
             # put the platform colour on the stack before drawing.
-            lw $t2, platform_colour
+            lw $t2, normal_platform_colour
             addi $sp, $sp, -4
             sw $t2, 0($sp)
 
@@ -567,6 +577,14 @@
         END_UPDATE_DOODLE:
             jr $ra
 
+    # TODO: Rather than passing the colour to draw, lets pass
+    #           -1 = erase
+    #            1 = draw
+    #       This way we can draw different colours to represent different platform
+    #       types. Also, recognize that we only want to figure out how to draw the
+    #       platforms here. We aren't doing any updates, just drawing based on the
+    #       current game state.
+
     # In FUNCTION_DRAW_PLATFORM_LOOP, we get each platform
     # from platform_arr and draw it using the colour on the stack.
     FUNCTION_DRAW_PLATFORM_LOOP:
@@ -627,10 +645,35 @@
                 jr $ra
 
 
+    # NOTE: we call this function after FUNCTION_GENERATE_RANDOM_PLATFORM
+    # TODO: We want to generate the type of platform
+    #       Args:
+    #           $a0 = pointer to heap-allocated struct
+    #
+    #       Returns $v0 =
+    #           0: Normal solid green platform
+    #           1: Disappearing platform
+    #           2: Moving platform
+    #           3: Shifting platform
+    #       This function also updates the struct that
+    #       is pointed to by the final element in the platform_types array.
+    FUNCTION_GENERATE_PLATFORM_TYPE:
+        # TODO: set 'type' (1st property) to random number then shrink it down to [0, 3]
+        #       - lets use some simple weighted probability to control the likelihood of getting certain platforms.
+        #
+        #           70% chance of getting a normal platform         ( green )
+        #           5% chance of getting a disappearing platform    ( white )
+        #           15% chance of getting a moving platform         ( blue  )
+        #           10% chance of getting a shifting platform       ( orange)
+        #
+        # TODO: set 'contact' (2nd property) to 0 (no contact)
+        # TODO: set 'direction' (3rd property) to 1 (moves right, only affects type 2 platforms)
+
+
     # Generate a random platform.
     # Arg: $a0 = width of this platform
     FUNCTION_GENERATE_RANDOM_PLATFORM:
-        add $t0, $zero, $a0      # $t0 = width of this platform.
+        add $t0, $zero, $a0     # $t0 = width of this platform.
         lw $t1, display_width
         lw $t2, block_size
 
@@ -1832,7 +1875,7 @@
 
             DRAW_NEW_PLATFORMS:
                 # put the platform colour on the stack before drawing.
-                lw $t0, platform_colour
+                lw $t0, normal_platform_colour
                 addi $sp, $sp, -4
                 sw $t0, 0($sp)
                 jal FUNCTION_DRAW_PLATFORM_LOOP
@@ -2043,7 +2086,7 @@
                 #       the platform as well, so we're taking this into account by redrawing it here.
                 # There has to be a more efficient way to do this, I don't want to draw in a bunch of edge
                 # cases, it's adding complexity.
-                lw $t0, platform_colour
+                lw $t0, normal_platform_colour
                 addi $sp, $sp, -4
                 sw $t0, ($sp)
                 jal FUNCTION_DRAW_PLATFORM_LOOP
@@ -2266,7 +2309,7 @@
                 jal FUNCTION_DRAW_DOODLE
 
                 # Since we may have passed through the platform, redraw the platforms.
-                lw $t1, platform_colour
+                lw $t1, normal_platform_colour
                 addi $sp, $sp, -4
                 sw $t1, ($sp)
 
