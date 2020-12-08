@@ -80,7 +80,7 @@
     bounce_height:      .word 24                # Doodle can jump up 14 rows.
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
 
-    # ---Score Keeping---
+    # ---Score Keeping and State---
     #
     # score_digits is an array of pointers to:
     #   struct digit {
@@ -96,6 +96,8 @@
                                                 #   The digits are in reverse order. Assuming max score of 9999
     score_length:       .word 1                 # The number of digits in the score.
 
+    allocations:        .word 0                 # We set this to 1 once we've allocated the blocks the first time.
+
 .text
     MAIN:
         # setup
@@ -106,6 +108,7 @@
         li $s7, 0   # 0 => have yet to draw doodle,    1 => starting doodle has been drawn.
 
         jal FUNCTION_ALLOCATE_SCORE_ARRAY
+        jal FUNCTION_ALLOCATE_PLATFORM_TYPES
 
         lw $a0, background      # paint the background white.
         jal FUNCTION_DRAW_BACKGROUND
@@ -135,8 +138,8 @@
         li $s1, 1512            # HARDCODED VALUE! 5th row, 58th col. 1512 = 58*4 + 5 * 256
         add $s1, $s1, $s0       # $s0 is the base display
 
-        ALLOCATION_LOOP:
-            beq $t0, $t1, FINISH_ALLOCATION
+        DIGIT_ALLOCATION_LOOP:
+            beq $t0, $t1, FINISH_DIGIT_ALLOCATION
 
             # Just a quick note: we allocate 8 bytes because our "struct"
             # is 2 words, the first is an address, the second is an integer.
@@ -160,16 +163,128 @@
             # Decrement the base address 4 columns
             addi $s1, $s1, -16
 
-            j ALLOCATION_LOOP
+            j DIGIT_ALLOCATION_LOOP
 
-        FINISH_ALLOCATION:
+        FINISH_DIGIT_ALLOCATION:
             # restore $s1
             lw $s1, 0($sp)
             addi $sp, $sp, 4
             jr $ra
 
-    # TODO: we want to allocate num_platforms structs as defined in the .data section.
+    # We want to allocate num_platforms structs as defined in the .data section.
+    # Note that if we're playing for the nth time, we're not doing any allocations,
+    # we just reuse the blocks made when the program started.
     FUNCTION_ALLOCATE_PLATFORM_TYPES:
+        lw $t0, num_platforms
+        li $t1, 0               # counter
+        la $t5, platform_type
+
+        PLATFORM_ALLOCATION_LOOP:
+            beq $t0, $t1, FINISH_PLATFORM_ALLOCATION
+
+            # access the index in platform_type
+            li $t3, 4
+            mult $t1, $t3
+            mflo $t3
+
+            add $t3, $t3, $t5   # offset into array
+
+            # We only allocate if this is our first time playing.
+            lw $t2, allocations
+            beq $t2, 1, SKIP_ALLOCATION
+            # Just a quick note: we allocate 12 bytes because our "struct"
+            # is 3 words:
+            #   int type
+            #   int contact
+            #   int direction
+            li $a0, 12          # num bytes to allocate
+            li $v0, 9           # call sbrk() syscall
+            syscall
+
+            move $t2, $v0       # Save the address in $t2
+            sw $t2, 0($t3)      # store the memory address in the array
+            j SET_DEFAULT_PLATFORM
+
+            SKIP_ALLOCATION:
+                lw $t2, 0($t3)      # read the memory address from the array
+
+            SET_DEFAULT_PLATFORM:
+                # int type = 0
+                li $t4, 0
+                sw $t4, 0($t2)
+
+                # int contact = 0
+                sw $t4, 4($t2)
+
+                # int direction = 1
+                li $t4, 1
+                sw $t4, 8($t2)
+
+                # Increment the counter
+                addi $t1, $t1, 1
+
+                j PLATFORM_ALLOCATION_LOOP
+
+        FINISH_PLATFORM_ALLOCATION:
+            # Now that the allocations have been made, we will no longer perform them until the next time the program is reloaded
+            la $t2, allocations
+            li $t4, 1
+            sw $t4, 0($t2)
+
+            jr $ra
+
+    # We want to de-allocate num_platforms structs as defined in the .data section.
+    FUNCTION_DEALLOCATE_PLATFORM_TYPES:
+        li $t0, -1
+        lw $t1, num_platforms   # counter
+        addi $t1, $t1, -1
+        la $t5, platform_type
+
+        # We deallocate in reverse
+        PLATFORM_DEALLOCATION_LOOP:
+            beq $t0, $t1, FINISH_PLATFORM_DEALLOCATION
+
+            # Just a quick note: we deallocate 12 bytes because our "struct"
+            # is 3 words:
+            #   int type
+            #   int contact
+            #   int direction
+
+            # access the index in platform_type
+            li $t3, 4
+            mult $t1, $t3
+            mflo $t3
+
+            add $t3, $t3, $t5   # offset into array
+            lw $t2, 0($t3)      # store the memory address in the array
+
+            # 0 everything out
+            # int type = 0
+            li $t4, 0
+            sw $t4, 0($t2)
+
+            # int contact = 0
+            sw $t4, 4($t2)
+
+            # int direction = 0
+            sw $t4, 8($t2)
+
+            # decrement the counter
+            addi $t1, $t1, -1
+
+            # NOTE: Typically, we would deallocate the space, however it seems like there isn't
+            #       any way to do this in MARS, so I'm just leaving this as a comment.
+            # Instead of reallocating space each time we play again, we'll just reuse
+            # the same memory.
+            # li $a0, -12         # num bytes to allocate
+            # li $v0, 9           # call sbrk() syscall
+            # syscall
+
+            j PLATFORM_DEALLOCATION_LOOP
+
+        FINISH_PLATFORM_DEALLOCATION:
+            jr $ra
+
 
     # argument: $a0 = colour
     FUNCTION_DRAW_BACKGROUND:
@@ -646,29 +761,84 @@
 
 
     # NOTE: we call this function after FUNCTION_GENERATE_RANDOM_PLATFORM
-    # TODO: We want to generate the type of platform
-    #       Args:
-    #           $a0 = pointer to heap-allocated struct
-    #
-    #       Returns $v0 =
-    #           0: Normal solid green platform
-    #           1: Disappearing platform
-    #           2: Moving platform
-    #           3: Shifting platform
-    #       This function also updates the struct that
-    #       is pointed to by the final element in the platform_types array.
+    #       Update the last element in the platform_type array.
     FUNCTION_GENERATE_PLATFORM_TYPE:
-        # TODO: set 'type' (1st property) to random number then shrink it down to [0, 3]
-        #       - lets use some simple weighted probability to control the likelihood of getting certain platforms.
-        #
+        # set 'type' (1st property) to random number then shrink it down to [0, 3]
+        #   - we use simple weighted probability to control the likelihood of getting certain platforms.
         #           70% chance of getting a normal platform         ( green )
         #           5% chance of getting a disappearing platform    ( white )
         #           15% chance of getting a moving platform         ( blue  )
-        #           10% chance of getting a shifting platform       ( orange)
-        #
-        # TODO: set 'contact' (2nd property) to 0 (no contact)
-        # TODO: set 'direction' (3rd property) to 1 (moves right, only affects type 2 platforms)
+        #           10% chance of getting a shifting platform       ( yellow)
+        # by default we make contact = 0, direction = 1
 
+        lw $t0, num_platforms
+        addi $t0, $t0, -1
+        li $t1, 4
+        mult $t0, $t1
+        mflo $t0            # offset in platform_type array
+
+        la $t2, platform_type
+        add $t2, $t2, $t0   # address of last element in the array
+
+        # contact = 0
+        li $t1, 0
+        sw $t1, 4($t2)
+
+        # direction = 1
+        li $t1, 1
+        sw $t1, 8($t2)
+
+        # Now to determine the type of platform
+        # random(0, 100)
+        li $t1, 100
+        li $a0, 0
+        move $a1, $t1
+        li $v0, 42
+        syscall
+
+        move $t1, $a0       # x = random_range(0, 100)
+        li $t0, 90
+
+        # At this point, if $t1 - 90 is greater than 0 it's a type 3
+        sub $t0, $t1, $t0
+        bltz, $t0, CHECK_TYPE_2
+
+        # type = 3
+        li $t1, 3
+        sw $t1, 0($t2)
+        j FINISH_GENERATING_PLATFORM_TYPE
+
+        CHECK_TYPE_2:
+            li $t0, 75
+
+            # At this point, if $t1 - 75 is greater than 0 it's a type 2
+            sub $t0, $t1, $t0
+            bltz, $t0, CHECK_TYPE_1
+            # type = 2
+            li $t1, 2
+            sw $t1, 0($t2)
+            j FINISH_GENERATING_PLATFORM_TYPE
+
+        CHECK_TYPE_1:
+            li $t0, 70
+
+            # At this point, if $t1 - 70 is greater than 0 it's a type 1
+            sub $t0, $t1, $t0
+            bltz, $t0, CHECK_TYPE_0
+            # type = 1
+            li $t1, 1
+            sw $t1, 0($t2)
+            j FINISH_GENERATING_PLATFORM_TYPE
+
+        CHECK_TYPE_0:
+            # At this point, 0 <= x <= 70, so it's a type 0
+            # type = 0
+            li $t1, 0
+            sw $t1, 0($t2)
+            j FINISH_GENERATING_PLATFORM_TYPE
+
+        FINISH_GENERATING_PLATFORM_TYPE:
+            jr $ra
 
     # Generate a random platform.
     # Arg: $a0 = width of this platform
@@ -2355,6 +2525,9 @@ GAME_END:
         li $a0, 0xffffff
         jal FUNCTION_DRAW_SCORE
         jal FUNCTION_DRAW_RETRY
+
+        # deallocate the heap
+        jal FUNCTION_DEALLOCATE_PLATFORM_TYPES
     RETRY:
         # Wait for the signal "s" to restart the game.
         jal FUNCTION_READ_KEYBOARD_INPUT
