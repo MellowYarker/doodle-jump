@@ -33,10 +33,18 @@
     # ---Colours---
     background:                     .word 0xDAEAFC      # Background colour of the display
     doodle_colour:                  .word 0xF9C09F
-    normal_platform_colour:         .word 0x00ff00      # green
-    disappearing_platform_colour:   .word 0xF2F2F2      # white-ish
-    moving_platform_colour:         .word 0x80BFFF      # blue-ish
-    shifting_platform_colour:       .word 0xFFD966      # yellow-ish
+
+    # array of platform colours
+    # first (green) normal
+    # second (white-ish) disappearing
+    # third (blue-ish) moving
+    # fourth (yellow-ish) shifting
+    platform_colour:    .word 0x00ff00, 0xF2F2F2, 0x80BFFF, 0xFFD966
+
+    # normal_platform_colour:         .word 0x00ff00      # green
+    # disappearing_platform_colour:   .word 0xF2F2F2      # white-ish
+    # moving_platform_colour:         .word 0x80BFFF      # blue-ish
+    # shifting_platform_colour:       .word 0xFFD966      # yellow-ish
     score_colour:                   .word 0x000000
 
     # ---IO Addresses---
@@ -369,7 +377,7 @@
 
         DRAW_STARTING_PLATFORMS:
             # put the platform colour on the stack before drawing.
-            lw $t2, normal_platform_colour
+            li $t2, 1
             addi $sp, $sp, -4
             sw $t2, 0($sp)
 
@@ -707,56 +715,82 @@
         addi $sp, $sp, 4            # reset the stack pointer
 
         # Throughout FUNCTION_DRAW_PLATFORM_LOOP, $s2 will be the offset for the arrays.
+        addi $sp, $sp, -4
+        sw $s2, 0($sp)
+
         li $s2, 0
         la $t8, row_arr             # our array of row indexes
         la $t9, platform_arr        # our array of platform origins
 
         GET_PLATFORM:
+            # TODO: Update special platforms if there are pending updates
+            #       Specifically, platforms 1 and 3 may need to be modified.
             lw $t1, num_platforms   # loop condition
-            li $t2, 4
-            mult $t1, $t2
-            mflo $t1                # $t1 = num_platforms * 4
-
-            # While i < num_platforms * 4, required because the next element is at arr[i + 4]
             beq $s2, $t1, COMPLETE_PLATFORM
 
-            # Draw the current platform from our array.
-            li $t2, 0   # current block being drawn.
-            lw $t3, platform_width
-            li $t4, 4
-            mult $t3, $t4
-            mflo $t3                # required for loop condition, 4*platform width
+            li $t2, 4
+            mult $t2, $s2
+            mflo $t2                # offset into our arrays
 
             # 1. get the row_index from row_arr[i]
-            add $t4, $t8, $s2       # addr(row_arr[i])
+            add $t4, $t8, $t2       # addr(row_arr[i])
             lw $t5, 0($t4)
 
             # 2. add the row index to the base of the display, positions us in the display.
             add $t5, $t5, $s0       # $t5 holds row_arr[i]'s actual position in the display
 
             # 3. get the column index from platform_arr[i]
-            add $t4, $t9, $s2       # addr(platform_arr[i])
+            add $t4, $t9, $t2       # addr(platform_arr[i])
             lw $t6, 0($t4)          # $t6 = platform_arr[i]
 
             # 4. add the column index to the position in the display to get to the current block
             add $t6, $t6, $t5       # $t6 = platform_arr[i] + row in display, i.e the leftmost block of this platform. This is the curent block.
 
+            # If we're erasing, set the colour to the background
+            beq $t7, -1 ERASE_PLATFORM
+
+            # TODO: if we have a disappearing platform, the colour will have to change.
+            # We're not erasing so we should get the default
+            # colour of this type of platform
+            la $t5, platform_type
+            add $t1, $t2, $t5       # offset in platform_type
+            lw $t1, 0($t1)          # address of struct on heap
+            lw $t1, 0($t1)          # type of platform
+
+            li $t4, 4
+            mult $t1, $t4
+            mflo $t1                # offset in platform_colour array
+            la $t4, platform_colour
+            add $t4, $t4, $t1
+            lw $t1, 0($t4)          # colour to paint this block
+
+            li $t2, 0               # loop counter for DRAW_CURRENT_PLATFORM
+            j DRAW_CURRENT_PLATFORM
+
+            ERASE_PLATFORM:
+                lw $t1, background
+                li $t2, 0               # loop counter for DRAW_CURRENT_PLATFORM
+                j DRAW_CURRENT_PLATFORM
+
             DRAW_CURRENT_PLATFORM:
+                lw $t3, platform_width
                 # while i < platform_width, draw this platform
                 beq $t2, $t3, NEXT_PLATFORM
-                sw $t7, 0($t6)      # draw the block the chosen colour
+                sw $t1, 0($t6)      # draw the block the chosen colour
 
                 # increment the block and go to the loop condition
-                addi $t2, $t2, 4
+                addi $t2, $t2, 1
                 addi $t6, $t6, 4    # Draw this block next.
                 j DRAW_CURRENT_PLATFORM
 
             NEXT_PLATFORM:
-                # increment our offset by 4
-                addi $s2, $s2, 4
+                # increment our
+                addi $s2, $s2, 1
                 j GET_PLATFORM
 
             COMPLETE_PLATFORM:
+                sw $s2, 0($sp)
+                addi $sp, $sp, 4
                 jr $ra
 
 
@@ -1877,7 +1911,7 @@
 
             # 1. Erase the current platforms.
             # put the platform colour on the stack before drawing.
-            lw $t0, background
+            li $t0, -1
             addi $sp, $sp, -4
             sw $t0, 0($sp)
 
@@ -1960,13 +1994,14 @@
 
                 # We went past the last block so rearrange the array.
                 li $t1, 0
-                lw $t2, num_platforms
-                addi $t2, $t2, -1       # We will modify all but the final platform
 
                 # In this loop, we perform row_arr[i] = row_arr[i + 1]
                 # for every platform excluding the last.
                 # This is how we shift the middle to the bottom, the top to the middle, etc.
                 SWAP_PLATFORMS_LOOP:
+                    lw $t2, num_platforms
+                    addi $t2, $t2, -1       # We will modify all but the final platform
+
                     beq $t1, $t2, GENERATE_TOP_PLATFORM
                     li $t3, 4
                     mult $t1, $t3
@@ -1986,13 +2021,28 @@
                     lw $t0, 0($t5)      # $t0 = platform_arr[i + 1]
                     sw $t0, 0($t4)      # platform_arr[i] = $t0
 
-                    # update platform_type
+                    # -REMARK-
+                    # We can't just swap pointers in platform_type, we have shift the values of the structs
                     la $t4, platform_type
                     add $t3, $t3, $t4   # offset into platform_type
                     addi $t5, $t3, 4    # offset + 4 is the next platform
 
                     lw $t0, 0($t5)      # $t0 = platform_type[i + 1]
-                    sw $t0, 0($t3)      # platform_type[i] = $t0
+                    lw $t2, 0($t3)      # $t2 = platform_type[i]
+
+                    # Next, access each property of the struct $t0 and store it in the corresponding
+                    # property of struct $t2
+                    # swap platform type
+                    lw $t4, 0($t0)
+                    sw $t4, 0($t2)
+
+                    # swap contact value
+                    lw $t4, 4($t0)
+                    sw $t4, 4($t2)
+
+                    # swap direction value
+                    lw $t4, 8($t0)
+                    sw $t4, 8($t2)
 
                     addi $t1, $t1, 1    # increment counter.
                     j SWAP_PLATFORMS_LOOP
@@ -2067,7 +2117,7 @@
 
             DRAW_NEW_PLATFORMS:
                 # put the platform colour on the stack before drawing.
-                lw $t0, normal_platform_colour
+                li $t0, 1
                 addi $sp, $sp, -4
                 sw $t0, 0($sp)
                 jal FUNCTION_DRAW_PLATFORM_LOOP
@@ -2384,8 +2434,6 @@
                 # .contact's final value will be 0.
                 LANDED_ON_TYPE3:
                     # TODO: THIS REQUIRES TESTING
-                    # at this point we only care about $t1 so save it if we call a func.
-                    # we probably want to call some function to generate a random direction & loop counter.
                     la $t2, platform_type
                     sub $t3, $t1, $t2
                     la $t2, platform_arr
@@ -2474,7 +2522,7 @@
                 #       the platform as well, so we're taking this into account by redrawing it here.
                 # There has to be a more efficient way to do this, I don't want to draw in a bunch of edge
                 # cases, it's adding complexity.
-                lw $t0, normal_platform_colour
+                li $t0, 1
                 addi $sp, $sp, -4
                 sw $t0, ($sp)
                 jal FUNCTION_DRAW_PLATFORM_LOOP
@@ -2697,7 +2745,7 @@
                 jal FUNCTION_DRAW_DOODLE
 
                 # Since we may have passed through the platform, redraw the platforms.
-                lw $t1, normal_platform_colour
+                li $t1, 1
                 addi $sp, $sp, -4
                 sw $t1, ($sp)
 
