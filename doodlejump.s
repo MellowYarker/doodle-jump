@@ -2146,6 +2146,8 @@
                     j DRAW_NEW_PLATFORMS
 
             DRAW_NEW_PLATFORMS:
+                jal FUNCTION_MOVE_MOVING_PLATFORMS
+
                 # put the platform colour on the stack before drawing.
                 li $t0, 1
                 addi $sp, $sp, -4
