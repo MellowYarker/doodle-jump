@@ -13,14 +13,19 @@
 #   - Base Address for Display: 0x10008000 ($gp)
 #
 # Which milestone is reached in this submission?
-#   - Milestone 4
+#   - Milestone 5
 #
 # Which approved additional features have been implemented?
-#   1. (fill in the feature, if any)
-#   2. (fill in the feature, if any)
-#   3. (fill in the feature, if any)
-#   ... (add more if necessary)
-#
+#   Milestone 4 Features
+#       1. Display score during game and at game over.
+#       2. Game over, restart screen.
+#   Milestone 5 Features
+#       1. Better physics (added gravity)
+#       2. More platforms (added 3 types)
+#           a. Blue platforms that move left and right
+#           b. White platforms that disappear (aka 'break').
+#           c. Orange platforms that shift when landed on. (additional)
+#       3. Doodle shoots
 # Any additional information that the TA needs to know:
 #   - (write here, if any)
 #
@@ -824,10 +829,10 @@
     FUNCTION_GENERATE_PLATFORM_TYPE:
         # set 'type' (1st property) to random number then shrink it down to [0, 3]
         #   - we use simple weighted probability to control the likelihood of getting certain platforms.
-        #           70% chance of getting a normal platform         ( green )
-        #           5% chance of getting a disappearing platform    ( white )
-        #           15% chance of getting a moving platform         ( blue  )
-        #           10% chance of getting a shifting platform       ( yellow)
+        #           50% chance of getting a normal platform         ( green )
+        #           15% chance of getting a disappearing platform   ( white )
+        #           15% chance of getting a moving platform         (  blue )
+        #           20% chance of getting a shifting platform       ( yellow)
         # by default we make contact = 0, direction = 1
 
         lw $t0, num_platforms
@@ -858,9 +863,9 @@
         syscall
 
         move $t1, $a0       # x = random_range(0, 100)
-        li $t0, 90
+        li $t0, 80
 
-        # At this point, if $t1 - 90 is greater than 0 it's a type 3
+        # At this point, if $t1 - 80 is greater than 0 it's a type 3
         sub $t0, $t1, $t0
         bltz, $t0, CHECK_TYPE_2
 
@@ -870,9 +875,9 @@
         j FINISH_GENERATING_PLATFORM_TYPE
 
         CHECK_TYPE_2:
-            li $t0, 75
+            li $t0, 65
 
-            # At this point, if $t1 - 75 is greater than 0 it's a type 2
+            # At this point, if $t1 - 65 is greater than 0 it's a type 2
             sub $t0, $t1, $t0
             bltz, $t0, CHECK_TYPE_1
             # type = 2
@@ -881,9 +886,9 @@
             j FINISH_GENERATING_PLATFORM_TYPE
 
         CHECK_TYPE_1:
-            li $t0, 70
+            li $t0, 50
 
-            # At this point, if $t1 - 70 is greater than 0 it's a type 1
+            # At this point, if $t1 - 50 is greater than 0 it's a type 1
             sub $t0, $t1, $t0
             bltz, $t0, CHECK_TYPE_0
             # type = 1
@@ -2541,6 +2546,9 @@
                 li $t0, 5
                 beq $s5, $t0, GAME_END  # If we fell past the last platform, end the game.
 
+                # TODO: we may need to save some registers
+                jal FUNCTION_MOVE_MOVING_PLATFORMS
+
                 # Redraw platform
                 # TODO: When we move the map (doodle hit max height), the doodle may be "inside"
                 #       the top platform. Therefore, when it falls, as we erase it, we erase
@@ -2667,12 +2675,137 @@
 
             jr $ra
 
-    # TODO: Check and resolve any pending updates of special platforms.
-    #       Returns $v0 = 1 if we've modifed a platform.
-    FUNCTION_RESOLVE_SPECIAL_UPDATES:
-        # Set $v0 to 0, if we update any platforms we will change it.
-        li $v0, 0
+    # Erase the platforms, update the moving platform positions, and redraw them
+    FUNCTION_MOVE_MOVING_PLATFORMS:
+        # Save ra
+        addi $sp, $sp, -4
+        sw $ra, 0($sp)
 
+        # use s1, s2, s3
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+
+        addi $sp, $sp, -4
+        sw $s2, 0($sp)
+
+        addi $sp, $sp, -4
+        sw $s3, 0($sp)
+
+        # first, we want to erase the platforms
+        li $s1, -1
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+
+        jal FUNCTION_DRAW_PLATFORM_LOOP
+
+        li $s1, 0
+        # loop each platform
+        LOOP_UPDATE_MOVING_PLATFORMS:
+            lw $t1, num_platforms
+            beq $s1, $t1, REDRAW_MOVED_PLATFORMS
+
+            # otherwise, get the offset
+            li $t1, 4
+            mult $t1, $s1
+            mflo $t1                # offset
+            # Next, check if we're at an edge
+            la $t9, platform_arr
+            add $s2, $t1, $t9       # address containing column offset
+            lw $s2, 0($s2)          # $s2 = column offset
+
+            li $s3, 4
+            div $s2, $s3
+            mflo $s2                # $s2 in [0, display_width/block_size - 1]
+
+            # Now we have to check if we're on the left or right side
+            beq $s2, 0, SEND_RIGHT
+
+            lw $s3, display_width
+
+            # TODO: Save $t3 before we call FUNCTION_MOVE_MOVING_PLATFORM
+            lw $t3, block_size
+            div $s3, $t3
+            mflo $t3
+            lw $s3, platform_width
+            sub $t3, $t3, $s3
+            addi $t3, $t3, -1
+
+            beq $s2, $t3, SEND_LEFT
+            # Otherwise, get the direction we currently store
+            la $t3, platform_type
+            add $t3, $t3, $t1       # offset in platform_type
+            lw $t3, 0($t3)          # address of struct
+
+            lw $s2, 0($t3)          # check type first
+            bne $s2, 2, FETCH_NEXT_PLATFORM
+
+            lw $s2, 8($t3)          # direction
+            j MOVE_PLATFORM
+
+            SEND_RIGHT:
+                la $t3, platform_type
+                add $t3, $t3, $t1   # offset in platform_type
+                lw $t3, 0($t3)      # address of struct
+
+
+                lw $s2, 0($t3)          # check type first
+                bne $s2, 2, FETCH_NEXT_PLATFORM
+
+                li $s2, 1
+                sw $s2, 8($t3)      # update the direction
+                j MOVE_PLATFORM
+
+            SEND_LEFT:
+                la $t3, platform_type
+                add $t3, $t3, $t1   # offset in platform_type
+                lw $t3, 0($t3)      # address of struct
+
+                lw $s2, 0($t3)          # check type first
+                bne $s2, 2, FETCH_NEXT_PLATFORM
+
+                li $s2, -1
+                sw $s2, 8($t3)      # update the direction
+                j MOVE_PLATFORM
+
+            MOVE_PLATFORM:
+                li $s3, 4
+                mult $s3, $s2
+                mflo $s2            # add this to our current column
+                add $s3, $t9, $t1   # offset of the platform in platform_arr
+                lw $t1, 0($s3)
+                add $t1, $t1, $s2   # new value
+                sw $t1, 0($s3)      # platform_arr[index] (+/-)= 4
+
+            FETCH_NEXT_PLATFORM:
+                addi $s1, $s1, 1
+                j LOOP_UPDATE_MOVING_PLATFORMS
+
+        REDRAW_MOVED_PLATFORMS:
+            # We've updated all the moving platforms.
+            li $s1, 1
+            addi $sp, $sp, -4
+            sw $s1, 0($sp)
+
+            jal FUNCTION_DRAW_PLATFORM_LOOP
+
+            # restore $sx
+            lw $s3, 0($sp)
+            addi $sp, $sp, 4
+
+            lw $s2, 0($sp)
+            addi $sp, $sp, 4
+
+            lw $s1, 0($sp)
+            addi $sp, $sp, 4
+
+            lw $ra, 0($sp)
+            addi $sp, $sp, 4
+
+            jr $ra
+
+
+    # Check and resolve any pending updates of special platforms.
+    FUNCTION_RESOLVE_SPECIAL_UPDATES:
         # using $s1 for the loop counter
         addi $sp, $sp, -4
         sw $s1, 0($sp)
@@ -2691,6 +2824,10 @@
 
             add $t3, $t2, $t7       # offset in platform_type
             lw $t3, 0($t3)          # address of struct
+
+ #           lw $t4, 0($t3)          # platform type, we only care if type 2
+#            beq $t4, 2, MOVE_MOVING_PLATFORM
+
             lw $t4, 4($t3)          # .contact value, repurposed as a counter if contact was made with type 1 or 3
 
             # Check if the counter is 0, if so go to the next platform.
@@ -2752,8 +2889,6 @@
                     lw $ra, 0($sp)
                     addi $sp, $sp, 4
 
-                    # TODO: delete this later
-                    li $v0, 1           # redraw platforms to load update
                     j PARSE_NEXT_PLATFORM
 
             CHECK_SHIFTER_PLATFORM:
@@ -2857,8 +2992,6 @@
                 lw $ra, ($sp)
                 addi $sp, $sp, 4
 
-                li $v0, 1
-
                 j PARSE_NEXT_PLATFORM
 
         PARSE_NEXT_PLATFORM:
@@ -2958,40 +3091,36 @@
             sub $t0, $t3, $t1
             addi $t0, $t0, 1
 
-            # TODO: run pending special platform updates here.
-            #       I want to call a function that checks and applies the updates, and then repaints the platforms.
+            # TODO: we may need to save some registers
+            jal FUNCTION_MOVE_MOVING_PLATFORMS
+            # Perform the updates to our special platforms
             jal FUNCTION_RESOLVE_SPECIAL_UPDATES
 
-            # if $v0 == 1 we have to redraw the platfroms
-            beq $v0, 0 SKIP_LOAD_UPDATE
+            # place the doodle colour on the stack before calling FUNCTION_DRAW_DOODLE
+            lw $t1, doodle_colour
+            addi $sp, $sp, -4
+            sw $t1, ($sp)
 
+            # If $t0 is positive, then the doodle is 1 row above the top platform, so we need to update the candidate_platform variable.
+            bgtz, $t0, INCREMENT_CANDIDATE_PLATFORM
 
-            SKIP_LOAD_UPDATE:
-                # place the doodle colour on the stack before calling FUNCTION_DRAW_DOODLE
-                lw $t1, doodle_colour
+            jal FUNCTION_DRAW_DOODLE
+            j BOUNCE_LOOP
+
+            INCREMENT_CANDIDATE_PLATFORM:
+                la $t0, candidate_platform
+                lw $t1, 0($t0)
+                addi $t1, $t1, 1
+                sw $t1, 0($t0)
+                jal FUNCTION_DRAW_DOODLE
+
+                # Since we may have passed through the platform, redraw the platforms.
+                li $t1, 1
                 addi $sp, $sp, -4
                 sw $t1, ($sp)
 
-                # If $t0 is positive, then the doodle is 1 row above the top platform, so we need to update the candidate_platform variable.
-                bgtz, $t0, INCREMENT_CANDIDATE_PLATFORM
-
-                jal FUNCTION_DRAW_DOODLE
+                jal FUNCTION_DRAW_PLATFORM_LOOP
                 j BOUNCE_LOOP
-
-                INCREMENT_CANDIDATE_PLATFORM:
-                    la $t0, candidate_platform
-                    lw $t1, 0($t0)
-                    addi $t1, $t1, 1
-                    sw $t1, 0($t0)
-                    jal FUNCTION_DRAW_DOODLE
-
-                    # Since we may have passed through the platform, redraw the platforms.
-                    li $t1, 1
-                    addi $sp, $sp, -4
-                    sw $t1, ($sp)
-
-                    jal FUNCTION_DRAW_PLATFORM_LOOP
-                    j BOUNCE_LOOP
 
 GAME_END:
     # Show the doodle at the bottom of the display.
