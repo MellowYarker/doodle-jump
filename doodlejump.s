@@ -41,6 +41,11 @@
     # fourth (yellow-ish) shifting
     platform_colour:    .word 0x00ff00, 0xF2F2F2, 0x80BFFF, 0xFFD966
 
+    # For disappearing platforms, we require 5 steps to disappear.
+    # The first element is the background colour, the last is closest to the
+    # ordinary disappearing platform colour.
+    gradient:           .word 0xDAEAFC, 0xE0ECFA, 0xE6EEF7, 0xECF0F4, 0xF0F1F3
+
     # normal_platform_colour:         .word 0x00ff00      # green
     # disappearing_platform_colour:   .word 0xF2F2F2      # white-ish
     # moving_platform_colour:         .word 0x80BFFF      # blue-ish
@@ -753,17 +758,39 @@
             la $t5, platform_type
             add $t1, $t2, $t5       # offset in platform_type
             lw $t1, 0($t1)          # address of struct on heap
-            lw $t1, 0($t1)          # type of platform
+            lw $t4, 0($t1)          # type of platform
 
-            li $t4, 4
-            mult $t1, $t4
-            mflo $t1                # offset in platform_colour array
-            la $t4, platform_colour
-            add $t4, $t4, $t1
-            lw $t1, 0($t4)          # colour to paint this block
+            # if $t1 == 1 (disappearing), check the .contact value
+            beq $t4, 1, CHECK_DISAPPEARING_CONTACT
+            j ACCESS_PLATFORM_COLOURS
 
-            li $t2, 0               # loop counter for DRAW_CURRENT_PLATFORM
-            j DRAW_CURRENT_PLATFORM
+            CHECK_DISAPPEARING_CONTACT:
+                lw $t2, 4($t1)      # $t4 == .contact
+                # if non-zero, subtract by 1 and set colour = gradient[.contact - 1]
+                beq $t2, 0, ACCESS_PLATFORM_COLOURS
+                addi $t2, $t2, -1   # index, we read gradient array in reverse
+
+                li $t1, 4
+                mult $t2, $t1
+                mflo $t2
+
+                la $t1, gradient    # gradient array
+                add $t2, $t1, $t2   # offset in gradient array
+
+                lw $t1, 0($t2)      # colour to paint this block
+                li $t2, 0           # loop coutner for DRAW_CURRENT_PLATFORM
+                j DRAW_CURRENT_PLATFORM
+
+            ACCESS_PLATFORM_COLOURS:
+                li $t1, 4
+                mult $t1, $t4
+                mflo $t1                # offset in platform_colour array
+                la $t4, platform_colour
+                add $t4, $t4, $t1
+                lw $t1, 0($t4)          # colour to paint this block
+
+                li $t2, 0               # loop counter for DRAW_CURRENT_PLATFORM
+                j DRAW_CURRENT_PLATFORM
 
             ERASE_PLATFORM:
                 lw $t1, background
@@ -2678,8 +2705,56 @@
                 # Draw the platform the colour associated with the .contact value,
                 # and then decrement the counter stored in .contact
                 # If the counter (.contact) = 1, the platform should be the background colour.
-                li $v0, 1           # redraw platforms to load update
-                j PARSE_NEXT_PLATFORM
+
+                # Save $ra before we call func
+                addi $sp, $sp, -4
+                sw $ra, ($sp)
+
+                # using $s3
+                addi $sp, $sp, -4
+                sw $s3, 0($sp)
+
+                addi $sp, $sp, -4
+                sw $t3, ($sp)
+
+                # Access this decremented contact gradient value.
+                # We have to do this in draw_platfrom_loop.
+                # I think we may need to add an arguement...
+                li $s3, 1       # draw, don't erase
+                addi $sp, $sp, -4
+                sw $s3, 0($sp)
+
+                jal FUNCTION_DRAW_PLATFORM_LOOP
+
+                # restore $t3
+                lw $t3, 0($sp)
+                addi $sp, $sp, 4
+
+                # Now that we've drawn it, decrement the counter.
+                lw $s3, 4($t3)      # columns remaining to move
+                addi $s3, $s3, -1   # decrement it
+                sw $s3, 4($t3)      # .contact -= .contact
+
+                # If we've decremented to 0, it's time for this platform to disappear.
+                beq $s3, 0, REMOVE_PLATFORM
+                j CONTACT_NOT_FINALIZED
+
+                REMOVE_PLATFORM:
+                    li $s3, 1
+                    sw $s3, 4($t3)      # .contact = 1 (final value)
+
+                CONTACT_NOT_FINALIZED:
+                    # restore $s3
+                    lw $s3, 0($sp)
+                    addi $sp, $sp, 4
+
+                    # restore $ra
+                    lw $ra, 0($sp)
+                    addi $sp, $sp, 4
+
+                    # TODO: delete this later
+                    li $v0, 1           # redraw platforms to load update
+                    j PARSE_NEXT_PLATFORM
 
             CHECK_SHIFTER_PLATFORM:
                 # Store $t2, $t3, $t4, $ra on the stack
