@@ -2204,12 +2204,18 @@
             lw $t2, 0($t1)      # address of the struct belonging to this candidate_platform
 
             lw $t1, 0($t2)      # platform_type[candidate_platform]->type
-            beq $t1, 1, SPECIAL_COLLISION
+            beq $t1, 1, DISAPPEARING_PLATFORM
             beq $t1, 3, SPECIAL_COLLISION
 
             # normal collision
             li $v0, 1
             jr $ra
+
+            DISAPPEARING_PLATFORM:
+                # Check if contact == 1, if so then fall past the platform
+                lw $t1, 4($t2)
+                beq $t1, 1, FELL_PAST_PLATFORM
+                # otherwise contact == 0 so we have a special collision
 
             SPECIAL_COLLISION:
                 # We want to set platform_type[candidate_platform]->contact = 1
@@ -2226,13 +2232,116 @@
             li $v0, -1
             jr $ra
 
+    # Create a random shift for the shift platform that we just collided with.
+    # Args: $a0 = leftmost block offset for the platform.
+    # Returns
+    #   $v0: direction to move in (+/- 1)
+    #   $v1: columns to move [2, display_width/block_size - platform_width]
+    FUNCTION_RANDOM_SHIFT:
+        # first, we have to check if we're close to the boundary.
+        move $t0, $a0
+        li $t1, 8
+        div $t0, $t1
+        mflo $t1
+
+        # If $t1 is within 8 blocks of column 0 we're on the left side so we have to go right.
+        addi $t2, $t1, -8
+        blez $t1, SHIFT_LEFT_BOUNDARY
+
+        # If $t0 = (display_width/block_size) - platform_width we're on the right side.
+        lw $t2, display_width
+        lw $t3, block_size
+        div $t2, $t3
+        mflo $t2
+        lw $t3, platform_width
+
+        sub $t2, $t2, $t3
+        addi $t2, $t2, -8       # $t2 = display_width/block_size - 8 - platform_width
+
+        # If x < $t2, then we're within the valid arena, so we can move 8 blocks in any direction
+        sub $t3, $t1, $t2
+        bgez $t3, SHIFT_RIGHT_BOUNDARY
+
+        # If we're here, we will move a random amount from 0 to 8
+        j SHIFT_RANDOM_DIRECTION
+
+        # Will force shift right
+        SHIFT_LEFT_BOUNDARY:
+            li $t3, 1
+            j AVOID_WALL
+
+        # Will force shift left
+        SHIFT_RIGHT_BOUNDARY:
+            li $t3, -1
+            j AVOID_WALL
+
+        SHIFT_RANDOM_DIRECTION:
+            li $a0, 0
+            li $v0, 41
+            syscall
+            move $t3, $a0
+
+            # if our number is divisible by 2 then we'll go right
+            li $t2, 2
+            div $t3, $t2
+            mfhi $t3
+            beq $t3, 0, SHIFT_RIGHT
+
+            # otherwise go left
+            j SHIFT_LEFT
+
+            SHIFT_RIGHT:
+                li $t3, 1
+                j VALID_ZONE_SHIFT
+
+            SHIFT_LEFT:
+                li $t3, -1
+                j VALID_ZONE_SHIFT
+
+            VALID_ZONE_SHIFT:
+                # we want to shift by random_range(0, 6), + 2 so [2, 8] columns.
+                li $a0, 0
+                li $a1, 6
+                li $v0, 42
+                syscall
+
+                # return
+                # First, recall that $t3 = direction
+                move $v0, $t3
+                move $v1, $a0
+                addi $v1, $v1, 2    # moves us from [0, 6] -> [2, 8]
+
+                jr $ra
+
+        # pick any random distance within a range of [2, 12] cols of the platform.
+        AVOID_WALL:
+            # t3 stores our direction
+            li $a0, 0
+            li $a1, 10
+            li $v0, 42
+            syscall
+
+            # return
+            move $v0, $t3
+            move $v1, $a0
+            addi $v1, $v1, 2    # moves us from [0, 10] -> [2, 12]
+
+            jr $ra
+
     FALL:
         li $s6, 0       # number of rows we've fallen so far
         FALL_LOOP:
             jal FUNCTION_COLLISION_DETECTION
-            add $s4, $zero, $v0        # 1 if collision occured, 0 if no platform nearby, -1 if fell past platform.
-            li $t1, 1
+            # 2 if special collision occured
+            # 1 if collision occured
+            # 0 if no platform nearby
+            # -1 if fell past platform.
+            add $s4, $zero, $v0
 
+            li $t1, 2
+            beq $s4, $t1, LANDED_ON_SPECIAL
+
+            li $t1, 1
             beq $s4, $t1, JUMP
 
             # We're falling at this point, deal with it.
@@ -2240,6 +2349,66 @@
             li $t1, -1
             beq $s4, $t1, DECREMENT_CANDIDATE_PLATFORM
             j HANDLE_FALL
+
+            # TODO
+            # We landed on a type 1 or type 3 platform.
+            LANDED_ON_SPECIAL:
+                li $t0, 4
+                lw $t1, candidate_platform
+                mult $t0, $t1
+                mflo $t1
+
+                la $t0, platform_type
+                add $t1, $t1, $t0       # offset in array.
+
+                lw $t2, 0($t1)          # address of the struct
+                lw $t2, 0($t2)          # type of platform
+
+                beq $t2, 1, LANDED_ON_TYPE1
+                beq $t2, 3, LANDED_ON_TYPE3
+
+                # If we've landed on a type 1 (disappearing) platform
+                # We're going to hijack the .contact property and turn it into a countdown.
+                # This will be used by the platform drawing code as a loop counter.
+                # .contact's final value will be 1.
+                LANDED_ON_TYPE1:
+                    lw $t2, 0($t1)      # address of struct
+                    li $t0, 5
+                    sw $t0, 4($t2)      # .contact = 5
+                    j JUMP
+
+                # If we landed on a type 3 (shifting) platform
+                # We're going to hijack the .contact property and turn it into a countdown.
+                # This will be used by the platform drawing code as a loop counter.
+                # Next, we will change the .direction property depending on what direction is safe.
+                # .contact's final value will be 0.
+                LANDED_ON_TYPE3:
+                    # TODO: THIS REQUIRES TESTING
+                    # at this point we only care about $t1 so save it if we call a func.
+                    # we probably want to call some function to generate a random direction & loop counter.
+                    la $t2, platform_type
+                    sub $t3, $t1, $t2
+                    la $t2, platform_arr
+                    add $t3, $t2, $t3   # offset in platfrom_arr
+
+                    # We need to hold on to $t1 because it's useful
+                    addi $sp, $sp, -4
+                    sw $t1, 0($sp)
+
+                    lw $a0, 0($t3)      # send the current column to the arg
+                    jal FUNCTION_RANDOM_SHIFT
+
+                    lw $t1, 0($sp)
+                    addi $sp, $sp, 4
+
+                    move $t0, $v0       # direction
+
+                    lw $t2, 0($t1)      # address of struct
+                    sw $t0, 4($t2)      # .contact = direction (+/- 1)
+
+                    move $t0, $v1       # columns to move
+                    sw $t0, 8($t2)      # .direction = an iterator now
+                    j JUMP
 
             DECREMENT_CANDIDATE_PLATFORM:
                 # if this is the bottom platform, get ready to end the game.
