@@ -819,7 +819,7 @@
                 j GET_PLATFORM
 
             COMPLETE_PLATFORM:
-                sw $s2, 0($sp)
+                lw $s2, 0($sp)
                 addi $sp, $sp, 4
                 jr $ra
 
@@ -2691,13 +2691,13 @@
         addi $sp, $sp, -4
         sw $s3, 0($sp)
 
-        # first, we want to erase the platforms
-        li $s1, -1
         addi $sp, $sp, -4
-        sw $s1, 0($sp)
+        sw $s4, 0($sp)
 
-        jal FUNCTION_DRAW_PLATFORM_LOOP
+        # 0 until we encounter and update a moving platform
+        li $s4, 0
 
+        # Loop counter
         li $s1, 0
         # loop each platform
         LOOP_UPDATE_MOVING_PLATFORMS:
@@ -2748,7 +2748,7 @@
                 lw $t3, 0($t3)      # address of struct
 
 
-                lw $s2, 0($t3)          # check type first
+                lw $s2, 0($t3)      # check type first
                 bne $s2, 2, FETCH_NEXT_PLATFORM
 
                 li $s2, 1
@@ -2767,41 +2767,72 @@
                 sw $s2, 8($t3)      # update the direction
                 j MOVE_PLATFORM
 
+            # We only get here if we have a type 2 platform
             MOVE_PLATFORM:
-                li $s3, 4
-                mult $s3, $s2
-                mflo $s2            # add this to our current column
-                add $s3, $t9, $t1   # offset of the platform in platform_arr
-                lw $t1, 0($s3)
-                add $t1, $t1, $s2   # new value
-                sw $t1, 0($s3)      # platform_arr[index] (+/-)= 4
+                # First, we only want to erase once.
+                beq $s4, 0, ERASE_FOR_UPDATE
+                j MODIFY_POSITION
+
+                ERASE_FOR_UPDATE:
+                    addi $sp, $sp, -4
+                    sw $t1, 0($sp)
+
+                    li $s4, -1
+                    addi $sp, $sp, -4
+                    sw $s4, 0($sp)
+
+                    jal FUNCTION_DRAW_PLATFORM_LOOP
+
+                    lw $t1, 0($sp)
+                    addi $sp, $sp, 4
+
+                    li $s4, 1           # update flag so that we redraw the platforms.
+
+                MODIFY_POSITION:
+                    li $s3, 4
+                    mult $s3, $s2
+                    mflo $s2            # add this to our current column
+                    add $s3, $t9, $t1   # offset of the platform in platform_arr
+                    lw $t1, 0($s3)
+                    add $t1, $t1, $s2   # new value
+                    sw $t1, 0($s3)      # platform_arr[index] (+/-)= 4
 
             FETCH_NEXT_PLATFORM:
                 addi $s1, $s1, 1
                 j LOOP_UPDATE_MOVING_PLATFORMS
 
         REDRAW_MOVED_PLATFORMS:
-            # We've updated all the moving platforms.
-            li $s1, 1
-            addi $sp, $sp, -4
-            sw $s1, 0($sp)
+            # We've updated any present moving platforms.
+            # However, we only want to draw if we made updates.
+            beq $s4, 1, PERFORM_REDRAW
+            j RESTORE_AND_EXIT
 
-            jal FUNCTION_DRAW_PLATFORM_LOOP
+            PERFORM_REDRAW:
+                li $s1, 1
+                addi $sp, $sp, -4
+                sw $s1, 0($sp)
 
-            # restore $sx
-            lw $s3, 0($sp)
-            addi $sp, $sp, 4
+                jal FUNCTION_DRAW_PLATFORM_LOOP
+                j RESTORE_AND_EXIT
 
-            lw $s2, 0($sp)
-            addi $sp, $sp, 4
+            RESTORE_AND_EXIT:
+                # restore $sx
+                lw $s4, 0($sp)
+                addi $sp, $sp, 4
 
-            lw $s1, 0($sp)
-            addi $sp, $sp, 4
+                lw $s3, 0($sp)
+                addi $sp, $sp, 4
 
-            lw $ra, 0($sp)
-            addi $sp, $sp, 4
+                lw $s2, 0($sp)
+                addi $sp, $sp, 4
 
-            jr $ra
+                lw $s1, 0($sp)
+                addi $sp, $sp, 4
+
+                lw $ra, 0($sp)
+                addi $sp, $sp, 4
+
+                jr $ra
 
 
     # Check and resolve any pending updates of special platforms.
