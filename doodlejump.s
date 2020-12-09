@@ -723,8 +723,6 @@
         la $t9, platform_arr        # our array of platform origins
 
         GET_PLATFORM:
-            # TODO: Update special platforms if there are pending updates
-            #       Specifically, platforms 1 and 3 may need to be modified.
             lw $t1, num_platforms   # loop condition
             beq $s2, $t1, COMPLETE_PLATFORM
 
@@ -749,7 +747,7 @@
             # If we're erasing, set the colour to the background
             beq $t7, -1 ERASE_PLATFORM
 
-            # TODO: if we have a disappearing platform, the colour will have to change.
+            # TODO: IF WE HAVE A DISAPPEARING PLATFROM AND THE .CONTACT VALUE IS NOT 0 THEN DO NOT DRAW IT!
             # We're not erasing so we should get the default
             # colour of this type of platform
             la $t5, platform_type
@@ -2423,8 +2421,8 @@
                 # .contact's final value will be 1.
                 LANDED_ON_TYPE1:
                     lw $t2, 0($t1)      # address of struct
-                    li $t0, 5
-                    sw $t0, 4($t2)      # .contact = 5
+                    li $t0, 4
+                    sw $t0, 4($t2)      # .contact = 4
                     j JUMP
 
                 # If we landed on a type 3 (shifting) platform
@@ -2452,10 +2450,10 @@
                     move $t0, $v0       # direction
 
                     lw $t2, 0($t1)      # address of struct
-                    sw $t0, 4($t2)      # .contact = direction (+/- 1)
+                    sw $t0, 8($t2)      # .direction = direction (+/-1)
 
                     move $t0, $v1       # columns to move
-                    sw $t0, 8($t2)      # .direction = an iterator now
+                    sw $t0, 4($t2)      # .contact = iterator now
                     j JUMP
 
             DECREMENT_CANDIDATE_PLATFORM:
@@ -2642,6 +2640,165 @@
 
             jr $ra
 
+    # TODO: Check and resolve any pending updates of special platforms.
+    #       Returns $v0 = 1 if we've modifed a platform.
+    FUNCTION_RESOLVE_SPECIAL_UPDATES:
+        # Set $v0 to 0, if we update any platforms we will change it.
+        li $v0, 0
+
+        # using $s1 for the loop counter
+        addi $sp, $sp, -4
+        sw $s1, 0($sp)
+
+        li $s1, 0
+
+        # Can use t2, t3
+        RESOLVE_LOOP:
+            la $t7, platform_type
+            lw $t1, num_platforms
+            beq $s1, $t1, COMPLETE_SPECIAL_UPDATE
+
+            li $t2, 4
+            mult $s1, $t2
+            mflo $t2
+
+            add $t3, $t2, $t7       # offset in platform_type
+            lw $t3, 0($t3)          # address of struct
+            lw $t4, 4($t3)          # .contact value, repurposed as a counter if contact was made with type 1 or 3
+
+            # Check if the counter is 0, if so go to the next platform.
+            beq $t4, 0, PARSE_NEXT_PLATFORM
+
+            lw $t4, 0($t3)          # platform type
+            beq $t4, 1, CHECK_DISAPPEARING_PLATFORM
+            beq $t4, 3, CHECK_SHIFTER_PLATFORM
+            j PARSE_NEXT_PLATFORM
+
+            CHECK_DISAPPEARING_PLATFORM:
+                # Draw the platform the colour associated with the .contact value,
+                # and then decrement the counter stored in .contact
+                # If the counter (.contact) = 1, the platform should be the background colour.
+                li $v0, 1           # redraw platforms to load update
+                j PARSE_NEXT_PLATFORM
+
+            CHECK_SHIFTER_PLATFORM:
+                # Store $t2, $t3, $t4, $ra on the stack
+                addi $sp, $sp, -4
+                sw $ra, ($sp)
+
+                addi $sp, $sp, -4
+                sw $t2, ($sp)
+
+                addi $sp, $sp, -4
+                sw $t3, ($sp)
+
+                addi $sp, $sp, -4
+                sw $t4, ($sp)
+
+                # First we erase them
+                li $t1, -1
+                addi $sp, $sp, -4
+                sw $t1, ($sp)
+
+                jal FUNCTION_DRAW_PLATFORM_LOOP
+
+                # restore $t2, $t4, $ra from the stack
+                lw $t4, ($sp)
+                addi $sp, $sp, 4
+
+                lw $t3, ($sp)
+                addi $sp, $sp, 4
+
+                lw $t2, ($sp)
+                addi $sp, $sp, 4
+
+                lw $ra, ($sp)
+                addi $sp, $sp, 4
+
+                # Shift it in the chosen direction and then decrement the counter stored in .contact
+                la $t9, platform_arr
+                add $t4, $t2, $t9   # Offset in platform_arr array
+
+                lw $t2, 0($t4)      # current column * 4
+
+                # using $s2
+                addi $sp, $sp, -4
+                sw $s2, 0($sp)
+                # using $s3
+                addi $sp, $sp, -4
+                sw $s3, 0($sp)
+
+
+                lw $s3, 4($t3)      # columns remaining to move
+                addi $s3, $s3, -1   # decrement it
+                sw $s3, 4($t3)      # .contact -= .contact
+
+                lw $s2, 8($t3)      # direction of travel
+                li $s3, 4
+                mult $s2, $s3       # +/- 4, aka right/left 1 block
+                mflo $s3
+
+                add $t2, $t2, $s3   # new column position
+                sw $t2, 0($t4)
+
+                # restore $s3
+                addi $sp, $sp, -4
+                sw $s3, 0($sp)
+
+                # restore $s2
+                addi $sp, $sp, -4
+                sw $s2, 0($sp)
+
+                # Store $t2, $t4, $ra on the stack
+                addi $sp, $sp, -4
+                sw $ra, ($sp)
+
+                addi $sp, $sp, -4
+                sw $t2, ($sp)
+
+                addi $sp, $sp, -4
+                sw $t3, ($sp)
+
+                addi $sp, $sp, -4
+                sw $t4, ($sp)
+
+                # Now we redraw
+                li $t1, 1
+                addi $sp, $sp, -4
+                sw $t1, ($sp)
+
+                jal FUNCTION_DRAW_PLATFORM_LOOP
+
+                # restore $t2, $t4, $ra from the stack
+                lw $t4, ($sp)
+                addi $sp, $sp, 4
+
+                lw $t3, ($sp)
+                addi $sp, $sp, 4
+
+                lw $t2, ($sp)
+                addi $sp, $sp, 4
+
+                lw $ra, ($sp)
+                addi $sp, $sp, 4
+
+                li $v0, 1
+
+                j PARSE_NEXT_PLATFORM
+
+        PARSE_NEXT_PLATFORM:
+            addi $s1, $s1, 1
+            j RESOLVE_LOOP
+
+        COMPLETE_SPECIAL_UPDATE:
+            lw $s1, 0($sp)
+            addi $sp, $sp, 4
+
+            jr $ra
+
+
+    # TODO: each time we go up a row we're going to modify our special platforms if they have pending modifications.
+    #       For example: We just bounced off a shift platform, so each time we move up a row we shift that platform.
     JUMP:
         li $s1, 0                   # $s1 will be our counter that lets us know how many more times we have to move the doodle up
         la $t8, row_arr
@@ -2726,31 +2883,40 @@
             sub $t0, $t3, $t1
             addi $t0, $t0, 1
 
-            # place the doodle colour on the stack before calling FUNCTION_DRAW_DOODLE
-            lw $t1, doodle_colour
-            addi $sp, $sp, -4
-            sw $t1, ($sp)
+            # TODO: run pending special platform updates here.
+            #       I want to call a function that checks and applies the updates, and then repaints the platforms.
+            jal FUNCTION_RESOLVE_SPECIAL_UPDATES
 
-            # If $t0 is positive, then the doodle is 1 row above the top platform, so we need to update the candidate_platform variable.
-            bgtz, $t0, INCREMENT_CANDIDATE_PLATFORM
+            # if $v0 == 1 we have to redraw the platfroms
+            beq $v0, 0 SKIP_LOAD_UPDATE
 
-            jal FUNCTION_DRAW_DOODLE
-            j BOUNCE_LOOP
 
-            INCREMENT_CANDIDATE_PLATFORM:
-                la $t0, candidate_platform
-                lw $t1, 0($t0)
-                addi $t1, $t1, 1
-                sw $t1, 0($t0)
-                jal FUNCTION_DRAW_DOODLE
-
-                # Since we may have passed through the platform, redraw the platforms.
-                li $t1, 1
+            SKIP_LOAD_UPDATE:
+                # place the doodle colour on the stack before calling FUNCTION_DRAW_DOODLE
+                lw $t1, doodle_colour
                 addi $sp, $sp, -4
                 sw $t1, ($sp)
 
-                jal FUNCTION_DRAW_PLATFORM_LOOP
+                # If $t0 is positive, then the doodle is 1 row above the top platform, so we need to update the candidate_platform variable.
+                bgtz, $t0, INCREMENT_CANDIDATE_PLATFORM
+
+                jal FUNCTION_DRAW_DOODLE
                 j BOUNCE_LOOP
+
+                INCREMENT_CANDIDATE_PLATFORM:
+                    la $t0, candidate_platform
+                    lw $t1, 0($t0)
+                    addi $t1, $t1, 1
+                    sw $t1, 0($t0)
+                    jal FUNCTION_DRAW_DOODLE
+
+                    # Since we may have passed through the platform, redraw the platforms.
+                    li $t1, 1
+                    addi $sp, $sp, -4
+                    sw $t1, ($sp)
+
+                    jal FUNCTION_DRAW_PLATFORM_LOOP
+                    j BOUNCE_LOOP
 
 GAME_END:
     # Show the doodle at the bottom of the display.
