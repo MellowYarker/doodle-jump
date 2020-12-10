@@ -432,7 +432,6 @@
     #           $v0 == 2
     #           $v1 == 0
     #
-    #   TODO: Add more values as we get to MS4+
     FUNCTION_READ_KEYBOARD_INPUT:
         lw $t0, keyPress
         lw $t0, 0($t0)
@@ -757,7 +756,6 @@
             # If we're erasing, set the colour to the background
             beq $t7, -1 ERASE_PLATFORM
 
-            # TODO: IF WE HAVE A DISAPPEARING PLATFROM AND THE .CONTACT VALUE IS NOT 0 THEN DO NOT DRAW IT!
             # We're not erasing so we should get the default
             # colour of this type of platform
             la $t5, platform_type
@@ -769,6 +767,8 @@
             beq $t4, 1, CHECK_DISAPPEARING_CONTACT
             j ACCESS_PLATFORM_COLOURS
 
+            # If the doodle landed on a disappearing platform, we want to fade it out of existence.
+            # This means we can't draw it the normal colour, so we have to avoid the ordinary execution path.
             CHECK_DISAPPEARING_CONTACT:
                 lw $t2, 4($t1)      # $t4 == .contact
                 # if non-zero, subtract by 1 and set colour = gradient[.contact - 1]
@@ -786,24 +786,26 @@
                 li $t2, 0           # loop coutner for DRAW_CURRENT_PLATFORM
                 j DRAW_CURRENT_PLATFORM
 
+            # The usual path. We want to get the colour for this platform type.
             ACCESS_PLATFORM_COLOURS:
                 li $t1, 4
                 mult $t1, $t4
-                mflo $t1                # offset in platform_colour array
+                mflo $t1            # offset in platform_colour array
                 la $t4, platform_colour
                 add $t4, $t4, $t1
-                lw $t1, 0($t4)          # colour to paint this block
+                lw $t1, 0($t4)      # colour to paint this block
 
-                li $t2, 0               # loop counter for DRAW_CURRENT_PLATFORM
+                li $t2, 0           # loop counter for DRAW_CURRENT_PLATFORM
                 j DRAW_CURRENT_PLATFORM
 
             ERASE_PLATFORM:
                 lw $t1, background
-                li $t2, 0               # loop counter for DRAW_CURRENT_PLATFORM
+                li $t2, 0           # loop counter for DRAW_CURRENT_PLATFORM
                 j DRAW_CURRENT_PLATFORM
 
             DRAW_CURRENT_PLATFORM:
                 lw $t3, platform_width
+
                 # while i < platform_width, draw this platform
                 beq $t2, $t3, NEXT_PLATFORM
                 sw $t1, 0($t6)      # draw the block the chosen colour
@@ -814,7 +816,7 @@
                 j DRAW_CURRENT_PLATFORM
 
             NEXT_PLATFORM:
-                # increment our
+                # increment our counter
                 addi $s2, $s2, 1
                 j GET_PLATFORM
 
@@ -1055,14 +1057,14 @@
         move $a0, $s2
         move $a1, $s4
         li $a2, 3       # go down
-        li $a3, 5       # draw 3 squares
+        li $a3, 5       # draw 5 squares
         jal FUNCTION_DRAW_TOOL
 
         # top bar
         move $a0, $s2
         move $a1, $s4
         li $a2, 0       # go right
-        li $a3, 2       # draw 3 squares
+        li $a3, 2       # draw 2 squares
         jal FUNCTION_DRAW_TOOL
 
         # middle bar
@@ -1086,7 +1088,7 @@
         addi $a1, $a1, 8  # base
 
         li $a2, 3       # go down
-        li $a3, 4       # draw 3 squares
+        li $a3, 4       # draw 4 squares
         jal FUNCTION_DRAW_TOOL
 
         # outer right
@@ -1098,10 +1100,10 @@
         mult $t2, $t3
         mflo $t2
         add $a1, $a1, $t2   # base
-        addi $a1, $a1, 12  # base
+        addi $a1, $a1, 12   # base
 
         li $a2, 3       # go down
-        li $a3, 2       # draw 3 squares
+        li $a3, 2       # draw 2 squares
         jal FUNCTION_DRAW_TOOL
 
         # Draw E
@@ -1111,7 +1113,7 @@
         move $a0, $s2
         move $a1, $s4
         li $a2, 3       # go down
-        li $a3, 5       # draw 3 squares
+        li $a3, 5       # draw 5 squares
         jal FUNCTION_DRAW_TOOL
 
         # Top bar
@@ -1133,7 +1135,7 @@
         add $a1, $a1, $t2   # base
 
         li $a2, 0       # go right
-        li $a3, 2       # draw 3 squares
+        li $a3, 2       # draw 2 squares
         jal FUNCTION_DRAW_TOOL
 
         # bottom bar
@@ -1158,7 +1160,7 @@
         move $a0, $s2
         move $a1, $s4
         li $a2, 0       # go right
-        li $a3, 5       # draw 3 squares
+        li $a3, 5       # draw 5 squares
         jal FUNCTION_DRAW_TOOL
 
         # middle Column
@@ -1170,7 +1172,7 @@
         addi $a1, $a1, 8
 
         li $a2, 3       # go down
-        li $a3, 4       # draw 3 squares
+        li $a3, 4       # draw 4 squares
         jal FUNCTION_DRAW_TOOL
 
         # Draw second R
@@ -1181,14 +1183,14 @@
         move $a0, $s2
         move $a1, $s4
         li $a2, 3       # go down
-        li $a3, 5       # draw 3 squares
+        li $a3, 5       # draw 5 squares
         jal FUNCTION_DRAW_TOOL
 
         # top bar
         move $a0, $s2
         move $a1, $s4
         li $a2, 0       # go right
-        li $a3, 2       # draw 3 squares
+        li $a3, 2       # draw 2 squares
         jal FUNCTION_DRAW_TOOL
 
         # middle bar
@@ -1212,7 +1214,7 @@
         addi $a1, $a1, 8  # base
 
         li $a2, 3       # go down
-        li $a3, 4       # draw 3 squares
+        li $a3, 4       # draw 4 squares
         jal FUNCTION_DRAW_TOOL
 
         # outer right
@@ -1227,7 +1229,7 @@
         addi $a1, $a1, 12  # base
 
         li $a2, 3       # go down
-        li $a3, 2       # draw 3 squares
+        li $a3, 2       # draw 2 squares
         jal FUNCTION_DRAW_TOOL
 
         # Draw Y
@@ -1237,7 +1239,7 @@
         move $a0, $s2
         move $a1, $s4
         li $a2, 3       # go down
-        li $a3, 2       # draw 3 squares
+        li $a3, 2       # draw 2 squares
         jal FUNCTION_DRAW_TOOL
 
         # right col
@@ -1245,7 +1247,7 @@
         move $a1, $s4
         addi $a1, $a1, 8    # base
         li $a2, 3       # go down
-        li $a3, 2       # draw 3 squares
+        li $a3, 2       # draw 2 squares
         jal FUNCTION_DRAW_TOOL
 
         # centre column
@@ -1255,7 +1257,7 @@
         add $a1, $a1, $t2   # base
         addi $a1, $a1, 4    # base
         li $a2, 3       # go down
-        li $a3, 4       # draw 3 squares
+        li $a3, 4       # draw 4 squares
         jal FUNCTION_DRAW_TOOL
 
 
@@ -2322,13 +2324,13 @@
     FUNCTION_RANDOM_SHIFT:
         # first, we have to check if we're close to the boundary.
         move $t0, $a0
-        li $t1, 8
+        li $t1, 4
         div $t0, $t1
         mflo $t1
 
-        # If $t1 is within 8 blocks of column 0 we're on the left side so we have to go right.
+        # If $t0 is within 8 blocks of column 0 we're on the left side so we have to go right.
         addi $t2, $t1, -8
-        blez $t1, SHIFT_LEFT_BOUNDARY
+        blez $t2, SHIFT_LEFT_BOUNDARY
 
         # If $t0 = (display_width/block_size) - platform_width we're on the right side.
         lw $t2, display_width
@@ -2432,7 +2434,6 @@
             beq $s4, $t1, DECREMENT_CANDIDATE_PLATFORM
             j HANDLE_FALL
 
-            # TODO
             # We landed on a type 1 or type 3 platform.
             LANDED_ON_SPECIAL:
                 li $t0, 4
@@ -2465,7 +2466,6 @@
                 # Next, we will change the .direction property depending on what direction is safe.
                 # .contact's final value will be 0.
                 LANDED_ON_TYPE3:
-                    # TODO: THIS REQUIRES TESTING
                     la $t2, platform_type
                     sub $t3, $t1, $t2
                     la $t2, platform_arr
@@ -2548,7 +2548,6 @@
                 li $t0, 5
                 beq $s5, $t0, GAME_END  # If we fell past the last platform, end the game.
 
-                # TODO: we may need to save some registers
                 jal FUNCTION_MOVE_MOVING_PLATFORMS
 
                 # Redraw platform
@@ -2621,7 +2620,8 @@
             LINEAR_ASCENT:
                 addi $s1, $s1, -20
 
-                li $s3, 30
+                #li $s3, 30
+                li $s3, 10
                 mult $s1, $s3
                 mflo $s1
 
@@ -2654,10 +2654,12 @@
             # 0 <=x <= 4
             # f(x) = -30(x) + 180
             LINEAR_DESCENT:
-                li $s3, -30
+                #li $s3, -30
+                li $s3, -10
                 mult $s1, $s3
                 mflo $s1
-                addi $s1,$s1, 180
+                #addi $s1,$s1, 180
+                addi $s1,$s1, 100
                 move $v0, $s1
                 j FINALIZE_PHYSICS
 
@@ -2677,7 +2679,8 @@
 
             jr $ra
 
-    # Erase the platforms, update the moving platform positions, and redraw them
+    # If there are any blue (moving) platforms on screen, we will erase
+    # all the platforms, update the moving one's positions, then redraw them all.
     FUNCTION_MOVE_MOVING_PLATFORMS:
         # Save ra
         addi $sp, $sp, -4
@@ -2697,10 +2700,12 @@
         sw $s4, 0($sp)
 
         # 0 until we encounter and update a moving platform
+        # this is effectively a flag that lets us redraw
         li $s4, 0
 
         # Loop counter
         li $s1, 0
+
         # loop each platform
         LOOP_UPDATE_MOVING_PLATFORMS:
             lw $t1, num_platforms
@@ -2724,7 +2729,6 @@
 
             lw $s3, display_width
 
-            # TODO: Save $t3 before we call FUNCTION_MOVE_MOVING_PLATFORM
             lw $t3, block_size
             div $s3, $t3
             mflo $t3
@@ -2733,6 +2737,7 @@
             addi $t3, $t3, -1
 
             beq $s2, $t3, SEND_LEFT
+
             # Otherwise, get the direction we currently store
             la $t3, platform_type
             add $t3, $t3, $t1       # offset in platform_type
@@ -2762,7 +2767,7 @@
                 add $t3, $t3, $t1   # offset in platform_type
                 lw $t3, 0($t3)      # address of struct
 
-                lw $s2, 0($t3)          # check type first
+                lw $s2, 0($t3)      # check type first
                 bne $s2, 2, FETCH_NEXT_PLATFORM
 
                 li $s2, -1
@@ -2804,8 +2809,7 @@
                 j LOOP_UPDATE_MOVING_PLATFORMS
 
         REDRAW_MOVED_PLATFORMS:
-            # We've updated any present moving platforms.
-            # However, we only want to draw if we made updates.
+            # Only redraw if we updated any platforms.
             beq $s4, 1, PERFORM_REDRAW
             j RESTORE_AND_EXIT
 
@@ -2845,7 +2849,6 @@
 
         li $s1, 0
 
-        # Can use t2, t3
         RESOLVE_LOOP:
             la $t7, platform_type
             lw $t1, num_platforms
@@ -2857,9 +2860,6 @@
 
             add $t3, $t2, $t7       # offset in platform_type
             lw $t3, 0($t3)          # address of struct
-
- #           lw $t4, 0($t3)          # platform type, we only care if type 2
-#            beq $t4, 2, MOVE_MOVING_PLATFORM
 
             lw $t4, 4($t3)          # .contact value, repurposed as a counter if contact was made with type 1 or 3
 
@@ -2985,12 +2985,12 @@
                 sw $t2, 0($t4)
 
                 # restore $s3
-                addi $sp, $sp, -4
-                sw $s3, 0($sp)
+                lw $s3, 0($sp)
+                addi $sp, $sp, 4
 
                 # restore $s2
-                addi $sp, $sp, -4
-                sw $s2, 0($sp)
+                lw $s2, 0($sp)
+                addi $sp, $sp, 4
 
                 # Store $t2, $t4, $ra on the stack
                 addi $sp, $sp, -4
@@ -3037,14 +3037,15 @@
 
             jr $ra
 
-
-    # TODO: each time we go up a row we're going to modify our special platforms if they have pending modifications.
-    #       For example: We just bounced off a shift platform, so each time we move up a row we shift that platform.
     JUMP:
         li $s1, 0                   # $s1 will be our counter that lets us know how many more times we have to move the doodle up
         la $t8, row_arr
 
         BOUNCE_LOOP:
+
+            #lw $t0, bounce_height   # highest we can jump
+            #beq $s1, $t0, FALL
+
             # Get the velocity according to doodle physics
             move $a0, $s1
             li $a1, 1
@@ -3124,8 +3125,8 @@
             sub $t0, $t3, $t1
             addi $t0, $t0, 1
 
-            # TODO: we may need to save some registers
             jal FUNCTION_MOVE_MOVING_PLATFORMS
+
             # Perform the updates to our special platforms
             jal FUNCTION_RESOLVE_SPECIAL_UPDATES
 
