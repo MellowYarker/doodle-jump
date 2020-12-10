@@ -16,19 +16,24 @@
 #   - Milestone 5
 #
 # Which approved additional features have been implemented?
-#   Milestone 4 Features
+#   ~~Milestone 4 Features~~
 #       1. Display score during game and at game over.
 #       2. Game over, restart screen.
-#   Milestone 5 Features
+#   ~~Milestone 5 Features~~
 #       1. Better physics (added gravity)
 #       2. More platforms (added 3 types)
 #           a. Blue platforms that move left and right
 #           b. White platforms that disappear (aka 'break').
 #           c. Orange platforms that shift when landed on. (additional)
 #       3. Doodle shoots
+#       4. Sound effects
 # Any additional information that the TA needs to know:
-#   - (write here, if any)
-#
+#   -   Start/restart = s
+#   -   Shoot = SPACEBAR
+#   -   Gravity was implemented by controlling the sleep timer, so higher
+#       gravity slows the program execution down. I've lowered it to a point where
+#       the rest of the game still functions pretty smoothly (ex. blue platforms)
+#       but the gravity's 'realism' took a bit of a hit in the process.
 #####################################################################
 .data
     # ---Timers---
@@ -51,10 +56,6 @@
     # ordinary disappearing platform colour.
     gradient:           .word 0xDAEAFC, 0xE0ECFA, 0xE6EEF7, 0xECF0F4, 0xF0F1F3
 
-    # normal_platform_colour:         .word 0x00ff00      # green
-    # disappearing_platform_colour:   .word 0xF2F2F2      # white-ish
-    # moving_platform_colour:         .word 0x80BFFF      # blue-ish
-    # shifting_platform_colour:       .word 0xFFD966      # yellow-ish
     score_colour:                   .word 0x000000
     fireball_colour:                .word 0xEB4034
 
@@ -677,6 +678,21 @@
             la $t2, shot_on_screen
             li $t0, 1
             sw $t0, 0($t2)      # shot_on_screen = 1
+
+            # shooting sound
+            li $a0, 50
+            li $a1, 300
+            li $a3, 120
+
+            li $a2, 117
+            li $v0, 31
+            syscall
+
+            li $a1, 330
+            li $a0, 120
+            li $a2, 90
+            li $v0, 31
+            syscall
 
         COMPLETE_FIREBALL_GENERATION:
             jr $ra
@@ -2431,6 +2447,13 @@
             beq $t1, 3, SPECIAL_COLLISION
 
             # normal collision
+            li $a0, 90
+            li $a1, 200
+            li $a2, 113
+            li $a3, 60
+
+            li $v0, 31
+            syscall
             li $v0, 1
             jr $ra
 
@@ -2441,6 +2464,13 @@
                 # otherwise contact == 0 so we have a special collision
 
             SPECIAL_COLLISION:
+                li $a0, 90
+                li $a1, 200
+                li $a2, 113
+                li $a3, 60
+
+                li $v0, 31
+                syscall
                 # We want to set platform_type[candidate_platform]->contact = 1
                 li $t1, 1
                 sw $t1, 4($t2)
@@ -2597,6 +2627,15 @@
                     lw $t2, 0($t1)      # address of struct
                     li $t0, 4
                     sw $t0, 4($t2)      # .contact = 4
+
+                    # Disappearing sound effect
+                    li $a0, 50
+                    li $a1, 300
+                    li $a2, 63
+                    li $a3, 105
+
+                    li $v0, 31
+                    syscall
                     j JUMP
 
                 # If we landed on a type 3 (shifting) platform
@@ -2627,6 +2666,14 @@
 
                     move $t0, $v1       # columns to move
                     sw $t0, 4($t2)      # .contact = iterator now
+                    # Play a shift sound
+                    li $a0, 50
+                    li $a1, 400
+                    li $a3, 120
+
+                    li $a2, 118
+                    li $v0, 31
+                    syscall
                     j JUMP
 
             DECREMENT_CANDIDATE_PLATFORM:
@@ -3393,7 +3440,10 @@ GAME_END:
 
         addi $t2, $t2, 1
         sw $t2, 0($t1)
-        j MAIN
 
-    li $v0, 10 		# terminate the program gracefully
-    syscall
+        # delete fireball if one was on screen when the doodle died
+        la $t0, fireball
+        la $t1, shot_on_screen
+        sw $zero, 0($t0)
+        sw $zero, 0($t1)
+        j MAIN
