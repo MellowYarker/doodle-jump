@@ -20,4 +20,8 @@ I will update this page as is necessary to reflect the state of the code.
 -   Upgrade to 512x512 display
 -   Add score counter to display
 -   Add game over/retry at end game
-- [ ] Milestone 5
+- [x] Milestone 5
+-   Add gravity.
+-   Add 3 new platform types (horizontal movement, disappear when landed on, shift when landed on).
+-   Added sound effects.
+-   Gave doodle the ability to shoot.
