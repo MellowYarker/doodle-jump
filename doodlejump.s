@@ -56,6 +56,7 @@
     # moving_platform_colour:         .word 0x80BFFF      # blue-ish
     # shifting_platform_colour:       .word 0xFFD966      # yellow-ish
     score_colour:                   .word 0x000000
+    fireball_colour:                .word 0xEB4034
 
     # ---IO Addresses---
     displayAddress:     .word 0x10008000
@@ -97,6 +98,9 @@
     doodle_origin:      .word 0                 # Storing [0, 4092] makes bounds/collision detection easier.
     bounce_height:      .word 24                # Doodle can jump up 14 rows.
     candidate_platform: .word 0                 # Index [0 (bottom), 1, 2(top)] of the closest platform that we can fall on to. If -1, game is over (fell under map)
+
+    fireball:           .word 0                 # Offset (col*4 + row*ROW_BELOW) to be added to display. Should exit from centre of doodle.
+    shot_on_screen:     .word 0                 # 0 = false, 1 = true
 
     # ---Score Keeping and State---
     #
@@ -432,6 +436,9 @@
     #           $v0 == 2
     #           $v1 == 0
     #
+    #   Case 3: Shoot (spacebar)
+    #           $v0 == 3
+    #           $v1 == 0
     FUNCTION_READ_KEYBOARD_INPUT:
         lw $t0, keyPress
         lw $t0, 0($t0)
@@ -443,12 +450,14 @@
         KEYBOARD_INPUT:
             lw $t1, keyValue    # location of key value
             lw $t1, 0($t1)      # value of the key that was pressed
-            # j = 0x6a
-            # k = 0x6b
-            # s = 0x73
+            #     j = 0x6a
+            #     k = 0x6b
+            #     s = 0x73
+            # space = 0x20
             beq $t1, 0x6a, HANDLE_J
             beq $t1, 0x6b, HANDLE_K
             beq $t1, 0x73, HANDLE_S
+            beq $t1, 0x20, HANDLE_SPACE
             j UNDEFINED_KEY_PRESS
 
             HANDLE_J:
@@ -463,6 +472,11 @@
 
             HANDLE_S:
                 li $v0, 2           # Start/Restart game.
+                li $v1, 0
+                jr $ra
+
+            HANDLE_SPACE:
+                li $v0, 3           # Shoot
                 li $v1, 0
                 jr $ra
 
@@ -629,6 +643,113 @@
             j END_DOODLE_DRAWING
 
         END_DOODLE_DRAWING:
+            jr $ra
+
+    # We take in 1 argument, if $a0 == 3 we update.
+    FUNCTION_SHOOT_FIREBALL:
+        # If shot_on_screen == 0, we can shoot
+        # Otherwise, we have to skip.
+        lw $t0, shot_on_screen
+        beq $t0, 1, COMPLETE_FIREBALL_GENERATION
+
+        # If user pressed space
+        li $t0, 3
+        beq $t0, $a0, GENERATE_FIREBALL
+
+        j COMPLETE_FIREBALL_GENERATION
+
+        GENERATE_FIREBALL:
+            # get the doodles position, set the fireball to the top of the doodle + a row
+            # and set shot_on_screen to 1
+            lw $t0, doodle_origin
+            lw $t1, ROW_BELOW
+            li $t2, -3
+            mult $t1, $t2
+            mflo $t1            # 1 row above doodle
+
+            add $t0, $t0, $t1
+            # Move it to the centre
+            addi $t0, $t0, 4
+
+            la $t2, fireball
+            sw $t0, 0($t2)      # fireball = offset we just genereated
+
+            la $t2, shot_on_screen
+            li $t0, 1
+            sw $t0, 0($t2)      # shot_on_screen = 1
+
+        COMPLETE_FIREBALL_GENERATION:
+            jr $ra
+
+    # Only update if it's currently on screen
+    FUNCTION_UPDATE_FIREBALL:
+        lw $t0, shot_on_screen
+        beq $t0, 1, UPDATE_FIREBALL
+
+        # Nothing to update
+        j COMPLETE_FIREBALL_UPDATE
+
+        UPDATE_FIREBALL:
+            # update the fireball position
+            # we move it up 2 rows at a time.
+            lw $t0, ROW_BELOW
+            li $t1, -2
+            mult $t0, $t1
+            mflo $t0
+
+            lw $t1, fireball
+            add $t1, $t0, $t1
+
+            bltz $t1, FIREBALL_OFF_SCREEN
+
+            # Otherwise update it
+            la $t0, fireball
+            sw $t1, 0($t0)
+            j COMPLETE_FIREBALL_UPDATE
+
+            FIREBALL_OFF_SCREEN:
+                la $t0, fireball
+                sw $zero, 0($t0)
+
+                la $t0, shot_on_screen
+                sw $zero, 0($t0)
+                j COMPLETE_FIREBALL_UPDATE
+
+        COMPLETE_FIREBALL_UPDATE:
+            jr $ra
+
+    # The colour to draw will be on the stack.
+    #   1 = fireball colour, -1 = background colour
+    # If shot_on_screen == 1,
+    FUNCTION_DRAW_FIREBALL:
+        lw $t0, 0($sp)
+        addi $sp, $sp, 4
+
+        lw $t1, shot_on_screen
+        beq $t1, 1, ON_SCREEN_CONTINUE
+
+        j RETURN_DRAW_FIREBALL
+
+        ON_SCREEN_CONTINUE:
+            # Check if we want to draw or erase
+            beq $t0 -1 ERASE_FIREBALL
+
+            # at this point we want to draw it
+            lw $t2, fireball_colour
+            j DRAW_FIREBALL
+
+            ERASE_FIREBALL:
+                lw $t2, background
+                j DRAW_FIREBALL
+
+            DRAW_FIREBALL:
+                # draw the fireball at its current position.
+                lw $t1, fireball
+                add $t1, $t1, $s0       # base addr
+                sw $t2, 0($t1)          # draw the colour requested.
+                j RETURN_DRAW_FIREBALL
+
+        RETURN_DRAW_FIREBALL:
             jr $ra
 
     # We take in 1 argument, if $a0 == 1 we update.
@@ -1954,8 +2075,17 @@
             # get overwritten. May as well erase and redraw it.
             lw $t0, background
             addi $sp, $sp, -4
-            sw $t0, ($sp)
+            sw $t0, 0($sp)
             jal FUNCTION_DRAW_DOODLE
+
+            # Erase fireball
+            li $t0, -1
+            addi $sp, $sp, -4
+            sw $t0, 0($sp)
+            jal FUNCTION_DRAW_FIREBALL
+
+            # Only updates if on screen
+            jal FUNCTION_UPDATE_FIREBALL
 
             # Check for keyboard input
             jal FUNCTION_READ_KEYBOARD_INPUT
@@ -1965,11 +2095,20 @@
             sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
             jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
 
+            # at this point $a0 will still be the previous argument
+            jal FUNCTION_SHOOT_FIREBALL
+
             # Redraw the doodle.
             lw $t1, doodle_colour
             addi $sp, $sp, -4
             sw $t1, ($sp)
             jal FUNCTION_DRAW_DOODLE
+
+            # Redraw the fireball
+            li $t1, 1
+            addi $sp, $sp, -4
+            sw $t1, 0($sp)
+            jal FUNCTION_DRAW_FIREBALL
 
             # 2. Calculate the new positions
             li $t0, 0
@@ -2524,6 +2663,15 @@
                 sw $t0, ($sp)
                 jal FUNCTION_DRAW_DOODLE
 
+                # Erase fireball
+                li $t0, -1
+                addi $sp, $sp, -4
+                sw $t0, 0($sp)
+                jal FUNCTION_DRAW_FIREBALL
+
+                # Only updates if on screen
+                jal FUNCTION_UPDATE_FIREBALL
+
                 # Check if the player wants to move the doodle.
                 jal FUNCTION_READ_KEYBOARD_INPUT
                 add $a0, $zero, $v0
@@ -2531,6 +2679,15 @@
                 addi $sp, $sp, -4
                 sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
                 jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
+
+                # at this point $a0 will still be the previous argument
+                jal FUNCTION_SHOOT_FIREBALL
+
+                # Redraw the fireball
+                li $t1, 1
+                addi $sp, $sp, -4
+                sw $t1, 0($sp)
+                jal FUNCTION_DRAW_FIREBALL
 
                 # We need to send our friend the doodle down 1 row.
                 la $t2, doodle_origin
@@ -3094,6 +3251,16 @@
             sw $t0, ($sp)
             jal FUNCTION_DRAW_DOODLE
 
+
+            # Erase fireball
+            li $t0, -1
+            addi $sp, $sp, -4
+            sw $t0, 0($sp)
+            jal FUNCTION_DRAW_FIREBALL
+
+            # Only updates if on screen
+            jal FUNCTION_UPDATE_FIREBALL
+
             # Check if the player wants to move the doodle
             jal FUNCTION_READ_KEYBOARD_INPUT
             add $a0, $zero, $v0
@@ -3101,6 +3268,16 @@
             addi $sp, $sp, -4
             sw $t1, 0($sp)                  # store $v1 on the stack (we only update if $a0 == 1)
             jal FUNCTION_UPDATE_DOODLE      # the doodle will update if there's an update to perform
+
+
+            # at this point $a0 will still be the previous argument
+            jal FUNCTION_SHOOT_FIREBALL
+
+            # Redraw the fireball
+            li $t1, 1
+            addi $sp, $sp, -4
+            sw $t1, 0($sp)
+            jal FUNCTION_DRAW_FIREBALL
 
             # We need to send our friend the doodle up 1 row.
             la $t2, doodle_origin
