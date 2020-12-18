@@ -36,11 +36,11 @@ There are 4 types of platforms in the game. Green platforms are the default plat
 ![alt text](https://github.com/MellowYarker/doodle-jump/blob/main/media/gifs/moving_platform.gif)
 
 ### Wrapping Through the Screen
-There will be times where getting to the next platform is nearly impossible going the usual route, instead, you will have to go through the wall.
+There will be times when getting to the next platform is nearly impossible going the usual route, instead, you will have to go through the wall.
 ![alt text](https://github.com/MellowYarker/doodle-jump/blob/main/media/gifs/screen_wrap.gif)
 
 ### Shooting
-Mad at the moving platforms? You press `space` to let out some steam. Don't worry, it won't break anything :)
+Mad at the moving platforms? Press `space` to let out some steam. Don't worry, it won't break the platforms :)
 ![alt text](https://github.com/MellowYarker/doodle-jump/blob/main/media/gifs/space_to_shoot.gif)
 
 ## MILESTONES
